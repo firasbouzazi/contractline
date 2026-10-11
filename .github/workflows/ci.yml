@@ -28,5 +28,7 @@ jobs:
         run: uv run ruff format --check .
       - name: Type-check
         run: uv run mypy
+      - name: Validate example contracts
+        run: uv run contractline validate examples/contracts
       - name: Test
         run: uv run pytest --cov=contractline --cov-report=term-missing
