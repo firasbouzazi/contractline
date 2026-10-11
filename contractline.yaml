@@ -1,0 +1,53 @@
+# Project-wide naming configuration, enforced by `contractline lint`.
+# Changes to this file need the harness maintainer's review (CODEOWNERS).
+
+# Closed set of business domains. A contract's domain must be one of these.
+domains:
+  - sales
+  - finance
+  - marketing
+  - logistics
+  - hr
+
+# Approved abbreviations, with what they stand for. Only these may appear
+# as a word in a column, entity or domain name.
+glossary:
+  id: identifier
+  utc: Coordinated Universal Time
+  iso: International Organization for Standardization
+  url: uniform resource locator
+  vat: value-added tax
+  sku: stock keeping unit
+  iban: international bank account number
+
+# Abbreviations that are rejected unless they are in the glossary.
+# Detecting abbreviations in general is impossible, so we list the common ones.
+banned_abbreviations:
+  acct: account
+  addr: address
+  amt: amount
+  avg: average
+  cat: category
+  cnt: count
+  cust: customer
+  desc: description
+  dt: date
+  emp: employee
+  ext: external
+  idx: index
+  max: maximum
+  min: minimum
+  msg: message
+  nbr: number
+  no: number
+  num: number
+  pct: percent
+  qty: quantity
+  ref: reference
+  src: source
+  std: standard
+  tmp: temporary
+  ts: timestamp
+  txn: transaction
+  usr: user
+  val: value

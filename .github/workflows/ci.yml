@@ -30,5 +30,13 @@ jobs:
         run: uv run mypy
       - name: Validate example contracts
         run: uv run contractline validate examples/contracts
+      - name: Lint naming conventions
+        env:
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          args=(examples/contracts --branch "$BRANCH")
+          if [ -n "$PR_TITLE" ]; then args+=(--pr-title "$PR_TITLE"); fi
+          uv run contractline lint "${args[@]}"
       - name: Test
         run: uv run pytest --cov=contractline --cov-report=term-missing

@@ -17,7 +17,7 @@ measures whether this holds, and reports where it does not.
 | Repository scaffold, tooling, CI | ✅ works |
 | Contract JSON Schema + validator (`contractline validate`) | ✅ works |
 | Contract diff: version bumps and relaxed guarantees (`contractline diff`) | ✅ works |
-| Naming conventions + `contractline lint` | ❌ not started |
+| Naming conventions (`contractline lint`, pre-commit, CI) | ✅ works |
 | Local Docker stack | ❌ not started |
 | Ingest, silver blocks, gold, GDPR operations | ❌ not started |
 | Evaluation | ❌ not started |
@@ -33,6 +33,7 @@ git clone https://github.com/firasbouzazi/contractline.git
 cd contractline
 uv sync
 uv run contractline validate examples/contracts
+uv run contractline lint examples/contracts
 uv run pytest
 ```
 
