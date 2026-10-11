@@ -16,7 +16,7 @@ measures whether this holds, and reports where it does not.
 | --- | --- |
 | Repository scaffold, tooling, CI | ✅ works |
 | Contract JSON Schema + validator (`contractline validate`) | ✅ works |
-| Contract diff (breaking-change detection) | ❌ not started |
+| Contract diff: version bumps and relaxed guarantees (`contractline diff`) | ✅ works |
 | Naming conventions + `contractline lint` | ❌ not started |
 | Local Docker stack | ❌ not started |
 | Ingest, silver blocks, gold, GDPR operations | ❌ not started |
