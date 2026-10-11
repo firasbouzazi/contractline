@@ -25,3 +25,14 @@ uv run pytest
 - One concern per pull request, with tests.
 - Never weaken a test to make it pass. If a test looks wrong, say why in the PR.
 - Significant design choices get an ADR in `docs/adr/` (copy `0000-template.md`).
+
+## Repository setup (maintainers)
+
+Branch protection for `main` is applied by a script rather than by hand, so it
+is reviewable and repeatable. With `gh` authenticated as a repository admin:
+
+```bash
+scripts/configure-branch-protection.sh firasbouzazi/contractline
+```
+
+See `docs/adr/0004-branches-and-agent-pull-requests.md` for the rules and why.
