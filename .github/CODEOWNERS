@@ -1,0 +1,8 @@
+# Harness internals require the harness maintainer's review.
+# Contracts and gold models get domain owners as the project grows (see ADR-0004).
+*                       @firasbouzazi
+/src/                   @firasbouzazi
+/.github/               @firasbouzazi
+/docs/adr/              @firasbouzazi
+/AGENTS.md              @firasbouzazi
+/CLAUDE.md              @firasbouzazi
