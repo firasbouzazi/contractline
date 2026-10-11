@@ -1,0 +1,17 @@
+{
+  "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+  "plugin.name": "pgoutput",
+  "database.hostname": "postgres",
+  "database.port": "5432",
+  "database.user": "crm",
+  "database.password": "crm",
+  "database.dbname": "crm",
+  "topic.prefix": "cdc.crm",
+  "table.include.list": "public.customers",
+  "slot.name": "contractline_crm",
+  "publication.name": "contractline_crm",
+  "publication.autocreate.mode": "filtered",
+  "decimal.handling.mode": "string",
+  "time.precision.mode": "adaptive_time_microseconds",
+  "tombstones.on.delete": "true"
+}
