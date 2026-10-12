@@ -1,8 +1,19 @@
-# Harness internals require the harness maintainer's review.
-# Contracts and gold models get domain owners as the project grows (see ADR-0004).
+# The harness maintainer reviews everything by default, and must review the
+# harness itself: blocks, adapters, CI, generated-test logic, conventions.
 *                       @firasbouzazi
 /src/                   @firasbouzazi
+/tests/                 @firasbouzazi
 /.github/               @firasbouzazi
 /docs/adr/              @firasbouzazi
+/contractline.yaml      @firasbouzazi
 /AGENTS.md              @firasbouzazi
 /CLAUDE.md              @firasbouzazi
+
+# Data owners review their domain's contracts and gold models (ADR-0018).
+# Replace with the owning teams when they exist; until then the maintainer owns them.
+/contracts/sales/       @firasbouzazi
+/contracts/finance/     @firasbouzazi
+/contracts/logistics/   @firasbouzazi
+/contracts/marketing/   @firasbouzazi
+/contracts/hr/          @firasbouzazi
+/pipelines/             @firasbouzazi

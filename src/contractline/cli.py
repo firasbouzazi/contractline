@@ -5,7 +5,9 @@ Commands are added one per change as they are implemented
 """
 
 import json
+import subprocess
 import tempfile
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
@@ -15,6 +17,7 @@ import yaml
 
 from contractline import __version__
 from contractline.adapters.orchestration.airflow import build_dags, find_stale_dags, write_dags
+from contractline.core.ci_summary import build_ci_summary
 from contractline.core.contract import Contract
 from contractline.core.diff import build_report, diff_contracts
 from contractline.core.gold import GoldModel, parse_gold
@@ -32,6 +35,7 @@ from contractline.core.plan import build_plan, format_plan
 from contractline.core.project import Project, ProjectError, load_project
 from contractline.core.project_config import ConfigError, find_config, load_config
 from contractline.core.scaffold import build_contract_skeleton
+from contractline.core.scope import find_out_of_scope
 from contractline.core.secrets import EnvSecretProvider
 from contractline.core.validation import (
     ContractError,
@@ -40,6 +44,14 @@ from contractline.core.validation import (
     parse_text,
 )
 from contractline.core.yaml_loader import load_yaml
+from contractline.evaluation.metrics import (
+    EVENT_TYPES,
+    compare_to_baseline,
+    compute_run_metrics,
+    load_runs,
+)
+from contractline.evaluation.metrics import summarize as summarize_runs
+from contractline.evaluation.report import build_report as build_eval_report
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
@@ -488,3 +500,148 @@ def dags(
         return
     for change in write_dags(generated, out) or ["no changes"]:
         typer.echo(change)
+
+
+def _git(*args: str) -> str:
+    result = subprocess.run(["git", *args], capture_output=True, text=True, check=False)  # noqa: S603, S607
+    if result.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args)}: {result.stderr.strip()}")
+    return result.stdout
+
+
+@app.command()
+def ci(
+    base: Annotated[str, typer.Option(help="Base ref the PR merges into.")] = "origin/main",
+    branch: Annotated[str, typer.Option(envvar="CONTRACTLINE_BRANCH", help="PR branch.")] = "",
+    pr_title: Annotated[str, typer.Option(envvar="CONTRACTLINE_PR_TITLE")] = "",
+    env: EnvOption = "local",
+    project: Annotated[
+        list[Path] | None, typer.Option("--project", help="Default: contracts/ and pipelines/.")
+    ] = None,
+    summary: Annotated[
+        Path | None, typer.Option(help="Write the PR comment (Markdown) here.")
+    ] = None,
+    run_tests: Annotated[bool, typer.Option("--tests/--no-tests")] = True,
+) -> None:
+    """Everything a pipeline PR must pass: scope, naming, contract diffs, generated tests."""
+    changed = [p for p in _git("diff", "--name-only", f"{base}...HEAD").splitlines() if p]
+    out_of_scope = find_out_of_scope(branch, changed)
+
+    lint_problems: list[str] = []
+    config_path = find_config(Path.cwd())
+    project_config = load_config(config_path) if config_path else None
+    if project_config is not None:
+        if branch:
+            lint_problems += [str(i) for i in lint_branch(branch, project_config)]
+        if pr_title:
+            lint_problems += [
+                str(i) for i in lint_pull_request_title(pr_title, branch, project_config)
+            ]
+
+    diffs: dict[str, dict[str, object]] = {}
+    for path in changed:
+        file = Path(path)
+        if file.suffix != ".yaml" or not file.exists():
+            continue
+        parsed, errors = parse_file(file)
+        if errors:
+            lint_problems += [f"{path}: {e}" for e in errors]
+            continue
+        if isinstance(parsed, GoldModel):
+            if project_config:
+                lint_problems += [str(i) for i in lint_gold_model(file, parsed, project_config)]
+            continue
+        if parsed is None:
+            continue
+        if project_config:
+            lint_problems += [str(i) for i in lint_contract(file, parsed, project_config)]
+        try:
+            old_text = _git("show", f"{base}:{path}")
+        except RuntimeError:
+            diffs[path] = {"new": True}
+            continue
+        old, old_errors = parse_text(old_text)
+        if old is None:
+            diffs[path] = {"new": True, "previous_invalid": [str(e) for e in old_errors]}
+            continue
+        diffs[path] = build_report(diff_contracts(old, parsed))
+
+    paths = project or [p for p in (Path("contracts"), Path("pipelines")) if p.exists()]
+    report_dict = None
+    if run_tests and paths and not out_of_scope:
+        from contractline.adapters.compute.spark_delta_local import (
+            LocalSparkDelta,
+        )
+        from contractline.testing.generated import run_generated_tests
+
+        results = run_generated_tests(
+            LocalSparkDelta(Path(tempfile.mkdtemp(prefix="contractline-ci-"))),
+            _load_project_or_exit(paths),
+            env,
+            progress=lambda m: typer.echo(f"... {m}"),
+        )
+        report_dict = json.loads(results.to_json())
+
+    text = build_ci_summary(diffs, report_dict, out_of_scope, lint_problems)
+    typer.echo(text)
+    if summary:
+        summary.write_text(text, "utf-8")
+    failed = (
+        out_of_scope
+        or lint_problems
+        or any(d.get("version_problem") for d in diffs.values())
+        or (report_dict is not None and not report_dict["passed"])
+    )
+    if failed:
+        raise typer.Exit(code=1)
+
+
+@app.command("eval-log")
+def eval_log(
+    scenario: Annotated[str, typer.Argument(help="Scenario id, e.g. S01.")],
+    event: Annotated[str, typer.Argument(help="Event type (see evaluation/protocol.md).")],
+    run_id: Annotated[str, typer.Option("--run", help="Run id, e.g. 2026-10-12-claude.")],
+    data: Annotated[str, typer.Option(help="Extra fields as a JSON object.")] = "{}",
+    logs: Annotated[Path, typer.Option(help="Log folder.")] = Path("evaluation/logs"),
+) -> None:
+    """Append one event to a scenario run's log."""
+    if event not in EVENT_TYPES:
+        typer.echo(f"Unknown event {event!r}; use one of {', '.join(EVENT_TYPES)}.", err=True)
+        raise typer.Exit(code=2)
+    fields = json.loads(data)
+    record = {
+        "scenario": scenario,
+        "run": run_id,
+        "at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "event": event,
+        **fields,
+    }
+    logs.mkdir(parents=True, exist_ok=True)
+    with (logs / f"{scenario}-{run_id}.jsonl").open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record) + "\n")
+    typer.echo(f"logged {event} for {scenario}/{run_id}")
+
+
+@app.command("eval-report")
+def eval_report(
+    logs: Annotated[Path, typer.Option(help="Log folder.")] = Path("evaluation/logs"),
+    scenarios: Annotated[Path, typer.Option(help="Scenario folder.")] = Path(
+        "evaluation/scenarios"
+    ),
+    baseline: Annotated[Path, typer.Option(help="Hand-built estimates (YAML).")] = Path(
+        "evaluation/baseline.yaml"
+    ),
+    out: Annotated[Path | None, typer.Option(help="Write the report here.")] = None,
+) -> None:
+    """Turn the evaluation logs into the results report."""
+    runs = load_runs([logs]) if logs.exists() else []
+    metrics = [compute_run_metrics(r) for r in runs]
+    estimates = load_yaml(baseline.read_text("utf-8")) if baseline.exists() else {}
+    estimates = {k: float(v["hours"]) for k, v in (estimates or {}).get("scenarios", {}).items()}
+    count = len(list(scenarios.glob("S*.md"))) if scenarios.exists() else 0
+    text = build_eval_report(
+        metrics, summarize_runs(metrics, runs), compare_to_baseline(metrics, estimates), count
+    )
+    if out:
+        out.write_text(text, "utf-8")
+    typer.echo(text)
