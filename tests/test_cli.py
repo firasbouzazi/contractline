@@ -105,3 +105,80 @@ def test_diff_rejects_invalid_contract(tmp_path: Path, examples_dir: Path) -> No
 
     assert result.exit_code == 1
     assert "is not a valid contract" in result.stderr
+
+
+REPO_CONFIG = Path(__file__).parent.parent / "contractline.yaml"
+
+
+def test_lint_passes_on_examples(examples_dir: Path) -> None:
+    result = runner.invoke(
+        app,
+        [
+            "lint",
+            str(examples_dir),
+            "--config",
+            str(REPO_CONFIG),
+            "--branch",
+            "agent/DATA-1-sales-customers",
+            "--pr-title",
+            "[sales/customers] add contract",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.strip() == "No problems found."
+
+
+def test_lint_reports_problems(tmp_path: Path, examples_dir: Path) -> None:
+    contract = tmp_path / "contracts" / "sales" / "clients.yaml"
+    contract.parent.mkdir(parents=True)
+    contract.write_text((examples_dir / "sales" / "customers.yaml").read_text())
+    message = tmp_path / "COMMIT_EDITMSG"
+    message.write_text("added stuff\n")
+
+    result = runner.invoke(
+        app,
+        [
+            "lint",
+            str(contract),
+            "--config",
+            str(REPO_CONFIG),
+            "--branch",
+            "wip",
+            "--commit-message-file",
+            str(message),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "path implies sales/clients" in result.stderr
+    assert "branch: 'wip' must be" in result.stderr
+    assert "commit: 'added stuff' is not a Conventional Commit header" in result.stderr
+    assert "3 problem(s) found." in result.stderr
+
+
+def test_lint_reports_invalid_contracts(tmp_path: Path) -> None:
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("api_version: contractline/v0\n")
+
+    result = runner.invoke(app, ["lint", str(bad), "--config", str(REPO_CONFIG)])
+
+    assert result.exit_code == 1
+    assert "'identity' is a required property" in result.stderr
+
+
+def test_lint_needs_something_to_check() -> None:
+    result = runner.invoke(app, ["lint", "--config", str(REPO_CONFIG)])
+
+    assert result.exit_code == 2
+    assert "Nothing to lint" in result.stderr
+
+
+def test_lint_rejects_invalid_config(tmp_path: Path) -> None:
+    config = tmp_path / "contractline.yaml"
+    config.write_text("domains: []\n")
+
+    result = runner.invoke(app, ["lint", "--branch", "main", "--config", str(config)])
+
+    assert result.exit_code == 2
+    assert "Invalid configuration" in result.stderr

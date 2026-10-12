@@ -17,7 +17,7 @@ measures whether this holds, and reports where it does not.
 | Repository scaffold, tooling, CI | ✅ works |
 | Contract JSON Schema + validator (`contractline validate`) | ✅ works |
 | Contract diff: version bumps and relaxed guarantees (`contractline diff`) | ✅ works |
-| Naming conventions + `contractline lint` | ❌ not started |
+| Naming conventions (`contractline lint`, pre-commit, CI) | ✅ works |
 | Local Docker stack: Postgres → Debezium → Kafka, Airflow (`make up`, `make smoke`) | ✅ works (no pipeline runs on it yet) |
 | Ingest, silver blocks, gold, GDPR operations | ❌ not started |
 | Evaluation | ❌ not started |
@@ -33,8 +33,23 @@ git clone https://github.com/firasbouzazi/contractline.git
 cd contractline
 uv sync
 uv run contractline validate examples/contracts
+uv run contractline lint examples/contracts
 uv run pytest
 ```
+
+### Local stack (optional)
+
+Needs Docker with Compose. About 1 GB of RAM for the CDC services, plus about
+1 GB for Airflow.
+
+```bash
+make up        # Postgres (demo CRM) -> Debezium -> Kafka, connector registered
+make smoke     # inserts a row in Postgres, checks it arrives on cdc.crm.public.customers
+make up-all    # also starts Airflow on http://localhost:8080
+make clean     # stops everything and deletes the data
+```
+
+The test suite does not need Docker. See [ADR-0009](docs/adr/0009-local-stack.md).
 
 ## A contract in brief
 

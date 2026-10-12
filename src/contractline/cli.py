@@ -13,6 +13,14 @@ import typer
 
 from contractline import __version__
 from contractline.core.diff import build_report, diff_contracts
+from contractline.core.lint import (
+    LintIssue,
+    lint_branch,
+    lint_commit_message,
+    lint_contract,
+    lint_pull_request_title,
+)
+from contractline.core.project_config import ConfigError, find_config, load_config
 from contractline.core.validation import InvalidContractError, load_contract, parse_text
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
@@ -121,3 +129,60 @@ def diff(
         raise typer.Exit(code=1)
     if fail_on_relax and result.relaxes_guarantees:
         raise typer.Exit(code=1)
+
+
+@app.command()
+def lint(
+    paths: Annotated[
+        list[Path] | None,
+        typer.Argument(
+            exists=True, help="Contract files, or directories searched for *.yaml files."
+        ),
+    ] = None,
+    branch: Annotated[str | None, typer.Option(help="Branch name to check.")] = None,
+    pr_title: Annotated[str | None, typer.Option(help="Pull request title to check.")] = None,
+    commit_message_file: Annotated[
+        Path | None,
+        typer.Option(exists=True, dir_okay=False, help="File holding a commit message."),
+    ] = None,
+    config: Annotated[
+        Path | None,
+        typer.Option(
+            exists=True, dir_okay=False, help="Defaults to the nearest contractline.yaml."
+        ),
+    ] = None,
+) -> None:
+    """Check naming conventions of contracts, branches, PR titles and commits."""
+    if not (paths or branch or pr_title or commit_message_file):
+        typer.echo("Nothing to lint: pass contract paths or a git option.", err=True)
+        raise typer.Exit(code=2)
+    config_path = config or find_config(Path.cwd())
+    if config_path is None:
+        typer.echo("No contractline.yaml found in this directory or its parents.", err=True)
+        raise typer.Exit(code=2)
+    try:
+        project = load_config(config_path)
+    except ConfigError as exc:
+        typer.echo(f"Invalid configuration: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+    issues: list[LintIssue | str] = []
+    for file in find_contract_files(paths or []):
+        contract, errors = parse_text(file.read_text("utf-8"))
+        if contract is None:
+            issues.extend(f"{file}: {error}" for error in errors)
+        else:
+            issues.extend(lint_contract(file, contract, project))
+    if branch:
+        issues.extend(lint_branch(branch, project))
+    if pr_title:
+        issues.extend(lint_pull_request_title(pr_title, branch, project))
+    if commit_message_file:
+        issues.extend(lint_commit_message(commit_message_file.read_text("utf-8")))
+
+    for found in issues:
+        typer.echo(str(found), err=True)
+    if issues:
+        typer.echo(f"{len(issues)} problem(s) found.", err=True)
+        raise typer.Exit(code=1)
+    typer.echo("No problems found.")
