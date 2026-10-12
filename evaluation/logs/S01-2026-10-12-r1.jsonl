@@ -1,2 +1,4 @@
 {"scenario": "S01", "run": "2026-10-12-r1", "at": "2026-10-12T21:28:02+00:00", "event": "ticket_received", "agent": "coding agent; same session that built the harness (biased run)", "model": "not recorded in repository"}
 {"scenario": "S01", "run": "2026-10-12-r1", "at": "2026-10-12T21:28:21+00:00", "event": "iteration", "n": 1, "ci_passed": false, "failures": ["naming/branch: ticket id S01 does not match <LETTERS>-<digits>; renamed branch to agent/EVAL-1-sales-accounts"]}
+{"scenario": "S01", "run": "2026-10-12-r1", "at": "2026-10-12T21:28:30+00:00", "event": "iteration", "n": 2, "ci_passed": false, "failures": ["agent passed --env pr0 (invalid); contractline ci crashed with a traceback instead of a clear error (harness finding)"]}
+{"scenario": "S01", "run": "2026-10-12-r1", "at": "2026-10-12T21:30:24+00:00", "event": "iteration", "n": 3, "ci_passed": true, "failures": []}
