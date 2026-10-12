@@ -10,18 +10,28 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+import yaml
 
 from contractline import __version__
+from contractline.core.contract import Contract
 from contractline.core.diff import build_report, diff_contracts
+from contractline.core.gold import GoldModel, parse_gold
 from contractline.core.lint import (
     LintIssue,
     lint_branch,
     lint_commit_message,
     lint_contract,
+    lint_gold_model,
     lint_pull_request_title,
 )
 from contractline.core.project_config import ConfigError, find_config, load_config
-from contractline.core.validation import InvalidContractError, load_contract, parse_text
+from contractline.core.validation import (
+    ContractError,
+    InvalidContractError,
+    load_contract,
+    parse_text,
+)
+from contractline.core.yaml_loader import load_yaml
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
@@ -44,6 +54,24 @@ def main(
     ] = False,
 ) -> None:
     """Turn data contracts into governed data pipelines."""
+
+
+GOLD_API_VERSION = "contractline/gold/v0"
+
+
+def parse_file(path: Path) -> tuple[Contract | GoldModel | None, list[ContractError]]:
+    """Validate a data contract or a gold model (chosen by its ``api_version``)."""
+    text = path.read_text("utf-8")
+    try:
+        doc = load_yaml(text)
+    except yaml.YAMLError:
+        doc = None  # parse_text reports the YAML error with its location
+    if isinstance(doc, dict) and doc.get("api_version") == GOLD_API_VERSION:
+        sql_path = path.with_suffix(".sql")
+        if not sql_path.is_file():
+            return None, [ContractError("<file>", f"missing SQL file {sql_path.name}")]
+        return parse_gold(text, sql_path.read_text("utf-8"))
+    return parse_text(text)
 
 
 def find_contract_files(paths: list[Path]) -> list[Path]:
@@ -72,7 +100,7 @@ def validate(
         raise typer.Exit(code=1)
     failed = 0
     for file in files:
-        _, errors = parse_text(file.read_text("utf-8"))
+        _, errors = parse_file(file)
         if errors:
             failed += 1
             for error in errors:
@@ -168,11 +196,13 @@ def lint(
 
     issues: list[LintIssue | str] = []
     for file in find_contract_files(paths or []):
-        contract, errors = parse_text(file.read_text("utf-8"))
-        if contract is None:
+        parsed, errors = parse_file(file)
+        if parsed is None:
             issues.extend(f"{file}: {error}" for error in errors)
+        elif isinstance(parsed, GoldModel):
+            issues.extend(lint_gold_model(file, parsed, project))
         else:
-            issues.extend(lint_contract(file, contract, project))
+            issues.extend(lint_contract(file, parsed, project))
     if branch:
         issues.extend(lint_branch(branch, project))
     if pr_title:

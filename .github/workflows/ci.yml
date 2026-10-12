@@ -40,13 +40,13 @@ jobs:
       - name: Architecture boundaries
         run: uv run lint-imports
       - name: Validate example contracts
-        run: uv run contractline validate examples/contracts
+        run: uv run contractline validate examples
       - name: Lint naming conventions
         env:
           BRANCH: ${{ github.head_ref || github.ref_name }}
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          args=(examples/contracts --branch "$BRANCH")
+          args=(examples --branch "$BRANCH")
           if [ -n "$PR_TITLE" ]; then args+=(--pr-title "$PR_TITLE"); fi
           uv run contractline lint "${args[@]}"
       # Spark tests are slow; they run once, on the oldest supported Python.

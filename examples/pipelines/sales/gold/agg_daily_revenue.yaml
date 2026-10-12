@@ -1,0 +1,41 @@
+api_version: contractline/gold/v0
+
+identity:
+  name: agg_daily_revenue
+  domain: sales
+  owner: sales-data@example.com
+  version: 1.0.0
+  description: >
+    Revenue per calendar day (UTC) and currency: the sum of total_amount over
+    orders that count as sales (see fct_orders). Currencies are never converted.
+
+inputs:
+  - gold.sales.fct_orders
+
+schema:
+  primary_key: [order_date, currency_code]
+  columns:
+    - { name: order_date, type: date, nullable: false, pii: none }
+    - { name: currency_code, type: string, nullable: false, pii: none }
+    - { name: order_count, type: long, nullable: false, pii: none }
+    - { name: revenue, type: "decimal(18,2)", nullable: false, pii: none }
+
+quality:
+  - type: unique
+    columns: [order_date, currency_code]
+    severity: block
+  - type: range
+    column: revenue
+    min: 0
+    severity: block
+
+tests:
+  - name: sums per day and currency
+    given:
+      gold.sales.fct_orders:
+        - { order_id: a, customer_id: 1, status: paid, total_amount: "10.00", currency_code: EUR, order_date: "2026-01-01" }
+        - { order_id: b, customer_id: 2, status: paid, total_amount: "5.50", currency_code: EUR, order_date: "2026-01-01" }
+        - { order_id: c, customer_id: 2, status: paid, total_amount: "3.00", currency_code: TND, order_date: "2026-01-01" }
+    expect:
+      - { order_date: "2026-01-01", currency_code: EUR, order_count: 2, revenue: "15.50" }
+      - { order_date: "2026-01-01", currency_code: TND, order_count: 1, revenue: "3.00" }

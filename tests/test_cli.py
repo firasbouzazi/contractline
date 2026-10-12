@@ -182,3 +182,37 @@ def test_lint_rejects_invalid_config(tmp_path: Path) -> None:
 
     assert result.exit_code == 2
     assert "Invalid configuration" in result.stderr
+
+
+def test_validate_and_lint_accept_gold_models(examples_dir: Path) -> None:
+    pipelines = str(examples_dir.parent / "pipelines")
+
+    validated = runner.invoke(app, ["validate", pipelines])
+    linted = runner.invoke(app, ["lint", pipelines, "--config", str(REPO_CONFIG)])
+
+    assert validated.exit_code == 0, validated.output
+    assert validated.stdout.strip() == "2 contract(s) valid."
+    assert linted.exit_code == 0, linted.output
+
+
+def test_lint_reports_misplaced_gold_model(tmp_path: Path, examples_dir: Path) -> None:
+    gold = examples_dir.parent / "pipelines" / "sales" / "gold"
+    target = tmp_path / "models"
+    target.mkdir()
+    for suffix in (".yaml", ".sql"):
+        (target / f"fct_orders{suffix}").write_text((gold / f"fct_orders{suffix}").read_text())
+
+    result = runner.invoke(app, ["lint", str(target), "--config", str(REPO_CONFIG)])
+
+    assert result.exit_code == 1
+    assert "gold models live at pipelines/sales/gold/fct_orders.yaml" in result.stderr
+
+
+def test_validate_reports_gold_without_sql(tmp_path: Path, examples_dir: Path) -> None:
+    gold = examples_dir.parent / "pipelines" / "sales" / "gold"
+    (tmp_path / "fct_orders.yaml").write_text((gold / "fct_orders.yaml").read_text())
+
+    result = runner.invoke(app, ["validate", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "missing SQL file fct_orders.sql" in result.stderr

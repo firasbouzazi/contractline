@@ -1,0 +1,50 @@
+api_version: contractline/gold/v0
+
+identity:
+  name: fct_orders
+  domain: sales
+  owner: sales-data@example.com
+  version: 1.0.0
+  description: >
+    Orders that count as sales: every order except cancelled ones, one row per
+    order, with the customer's current segment and country. An order whose
+    customer is unknown is kept, with an empty segment.
+
+inputs:
+  - silver.sales.orders
+  - silver.sales.customers
+
+schema:
+  primary_key: [order_id]
+  columns:
+    - { name: order_id, type: string, nullable: false, pii: none }
+    - { name: customer_id, type: long, nullable: false, pii: none }
+    - { name: customer_segment, type: string, nullable: true, pii: none }
+    - { name: country_code, type: string, nullable: true, pii: none }
+    - { name: status, type: string, nullable: false, pii: none }
+    - { name: total_amount, type: "decimal(12,2)", nullable: false, pii: none }
+    - { name: currency_code, type: string, nullable: false, pii: none }
+    - { name: order_date, type: date, nullable: false, pii: none }
+
+quality:
+  - type: unique
+    columns: [order_id]
+    severity: block
+  - type: not_null
+    column: customer_segment
+    severity: warn
+
+tests:
+  - name: cancelled orders are excluded and segments come from the current version
+    given:
+      silver.sales.customers:
+        - { customer_id: 1, segment: consumer, country_code: FR, _is_current: false }
+        - { customer_id: 1, segment: business, country_code: FR, _is_current: true }
+        - { customer_id: 2, segment: partner, country_code: TN }
+      silver.sales.orders:
+        - { order_id: o-1, customer_id: 1, status: paid, total_amount: "20.00", currency_code: EUR, ordered_at: "2026-01-01T10:00:00Z" }
+        - { order_id: o-2, customer_id: 2, status: cancelled, total_amount: "5.00", currency_code: EUR, ordered_at: "2026-01-01T11:00:00Z" }
+        - { order_id: o-3, customer_id: 3, status: placed, total_amount: "7.50", currency_code: TND, ordered_at: "2026-01-02T09:00:00Z" }
+    expect:
+      - { order_id: o-1, customer_id: 1, customer_segment: business, country_code: FR, status: paid, total_amount: "20.00", currency_code: EUR, order_date: "2026-01-01" }
+      - { order_id: o-3, customer_id: 3, customer_segment: null, country_code: null, status: placed, total_amount: "7.50", currency_code: TND, order_date: "2026-01-02" }

@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/firasbouzazi/contractline/schemas/gold-v0.json",
+  "title": "contractline gold model output contract (v0)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "identity", "inputs", "schema", "quality", "tests"],
+  "properties": {
+    "api_version": { "const": "contractline/gold/v0" },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "domain", "owner", "version", "description"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^(fct|dim|agg)_[a-z][a-z0-9_]*$",
+          "description": "<fct|dim|agg>_<name>, e.g. fct_orders."
+        },
+        "domain": { "$ref": "contract-v0.json#/$defs/identifier" },
+        "owner": { "type": "string", "minLength": 1 },
+        "version": { "$ref": "contract-v0.json#/properties/identity/properties/version" },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The business definition. Required: gold is where meaning lives."
+        }
+      }
+    },
+    "inputs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^(silver|gold)\\.[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+        "description": "<layer>.<domain>.<entity>, e.g. silver.sales.orders."
+      }
+    },
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["columns"],
+      "properties": {
+        "columns": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "contract-v0.json#/$defs/column" }
+        },
+        "primary_key": { "$ref": "contract-v0.json#/$defs/column_list" }
+      }
+    },
+    "quality": {
+      "type": "array",
+      "items": { "$ref": "contract-v0.json#/$defs/quality_rule" }
+    },
+    "tests": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Example-based tests: given input rows, the model must return exactly the expected rows.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "given", "expect"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "given": {
+            "type": "object",
+            "additionalProperties": { "type": "array", "items": { "type": "object" } }
+          },
+          "expect": { "type": "array", "items": { "type": "object" } }
+        }
+      }
+    }
+  }
+}
