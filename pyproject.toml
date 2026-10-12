@@ -24,6 +24,12 @@ dependencies = [
 contractline = "contractline.cli:app"
 
 [project.optional-dependencies]
+# Runs against a Databricks workspace from outside it. databricks-connect ships
+# its own pyspark, so install it in an environment without the spark extra.
+databricks = [
+    "databricks-connect>=16.1",
+    "databricks-sdk>=0.40",
+]
 spark = [
     "delta-spark>=4.0,<4.1",
     "pyspark>=4.0,<4.1",
@@ -66,11 +72,12 @@ ignore = ["N812"]
 # Tests build SQL on purpose (for example to prove gold isolation catches it).
 "tests/**" = ["S101", "S608"]
 "tests_e2e/**" = ["S101"]
+"tests_databricks/**" = ["S101", "E501"]
 
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["src", "tests", "tests_e2e"]
+files = ["src", "tests", "tests_e2e", "tests_databricks"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -111,3 +118,9 @@ name = "Generated tests never depend on platform adapters"
 type = "forbidden"
 source_modules = ["contractline.testing"]
 forbidden_modules = ["contractline.adapters"]
+
+[[tool.mypy.overrides]]
+# Only present on Databricks or with databricks-connect, which replaces pyspark
+# and therefore is not part of the dev environment.
+module = ["databricks.*"]
+ignore_missing_imports = true

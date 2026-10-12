@@ -1,0 +1,48 @@
+name: Databricks
+
+# Deploys the bundle and runs the cross-platform parity test against a real
+# workspace. Manual until a workspace is connected: set the repository secrets
+# DATABRICKS_HOST and DATABRICKS_TOKEN (a service principal's token) and the
+# variable DATABRICKS_SERVERLESS_COMPUTE_ID=auto, then run this workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Bundle target
+        default: dev
+        type: choice
+        options: [dev, staging]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-and-compare:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target }}
+    env:
+      DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+      DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+      DATABRICKS_SERVERLESS_COMPUTE_ID: ${{ vars.DATABRICKS_SERVERLESS_COMPUTE_ID || 'auto' }}
+      CONTRACTLINE_PARITY_ENV: ${{ inputs.target }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: databricks/setup-cli@v0.240.0
+      - name: Generated bundle is up to date
+        run: |
+          uv sync --locked
+          uv run contractline bundle examples --out examples/databricks/resources/jobs.yml --check
+      - name: Deploy the bundle
+        working-directory: infra/databricks
+        run: databricks bundle deploy -t ${{ inputs.target }}
+      - name: Parity test (local Spark vs Databricks)
+        run: |
+          # databricks-connect brings its own pyspark: separate environment.
+          uv venv .venv-databricks
+          VIRTUAL_ENV=.venv-databricks uv pip install -e ".[databricks]" pytest hypothesis
+          .venv-databricks/bin/pytest tests_databricks -v

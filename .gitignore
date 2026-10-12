@@ -14,3 +14,7 @@ metastore_db/
 derby.log
 .env
 .contractline/
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl

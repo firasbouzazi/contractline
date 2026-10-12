@@ -5,13 +5,19 @@ This is the only module that wires platform adapters to blocks.
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from enum import StrEnum
+from pathlib import Path
 
+from contractline.adapters.compute.databricks import DatabricksCompute
+from contractline.adapters.compute.spark_delta_local import LocalSparkDelta
+from contractline.adapters.secrets_databricks import DatabricksSecretProvider
+from contractline.adapters.sources.autoloader import AutoLoaderSource
 from contractline.adapters.sources.files import FilesSource
 from contractline.adapters.sources.kafka import KafkaSource
 from contractline.core.contract import Contract, SourceAdapter
 from contractline.core.plan import StepKind, build_plan
 from contractline.core.project import Project
-from contractline.core.secrets import SecretProvider
+from contractline.core.secrets import EnvSecretProvider, SecretProvider
 from contractline.spark.bronze import ingest_to_bronze
 from contractline.spark.gold import GoldReport, run_gold
 from contractline.spark.interfaces import SparkCompute, SparkSource
@@ -96,3 +102,30 @@ def run_step(
     total = sum(r.records_in for r in reports)
     quarantined = sum(r.records_quarantined for r in reports)
     return f"{step_id}: {total} records, {quarantined} quarantined"
+
+
+class Platform(StrEnum):
+    LOCAL = "local"
+    DATABRICKS = "databricks"
+
+
+def build_platform(
+    platform: Platform,
+    env: str,
+    workdir: Path,
+    kafka_bootstrap: str | None,
+    secret_scope: str = "contractline",  # noqa: S107 - the scope's name, not a secret
+) -> tuple[SparkCompute, SourceFactory, SecretProvider]:
+    """Compute, sources and secrets for one platform. The blocks never change."""
+    if platform is Platform.LOCAL:
+        return LocalSparkDelta(workdir), build_source_factory(kafka_bootstrap), EnvSecretProvider()
+    compute = DatabricksCompute(env)
+    kafka = build_source_factory(kafka_bootstrap)
+    autoloader = AutoLoaderSource(f"/Volumes/{env}_harness/contractline/autoloader")
+
+    def sources(contract: Contract) -> SparkSource:
+        if contract.source.adapter is SourceAdapter.FILES:
+            return autoloader
+        return kafka(contract)
+
+    return compute, sources, DatabricksSecretProvider(secret_scope)

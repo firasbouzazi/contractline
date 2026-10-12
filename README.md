@@ -30,6 +30,8 @@ measures whether this holds, and reports where it does not.
 | Airflow Dags generated from contracts (`contractline dags`), one per step, asset-triggered | ✅ works (load-tested in Airflow 3.1; running them needs a worker image with contractline) |
 | Agent workflow: `AGENTS.md`, scope guard, `contractline ci`, PR summary comment, deploy workflow | ✅ works (deploy promotes the artifact and runs checks; no cloud target yet) |
 | Evaluation: 14 scenarios, protocol, baseline, logs, `eval-report` | ✅ tooling works; scenario runs in progress, see `evaluation/results.md` |
+| Databricks adapter: Unity Catalog names, Auto Loader, secret scope, governance tags and grants, Asset Bundle, Terraform | ⚠️ written and checked offline (unit tests, `terraform validate`); **not yet run on a workspace** |
+| Cross-platform parity test | ⚠️ local half runs; Databricks half needs workspace credentials (`.github/workflows/databricks.yml`) |
 
 Today a contract and a gold model are enough to run a governed pipeline locally, from Kafka or Postgres CDC to gold, and to test it on synthetic data.
 
