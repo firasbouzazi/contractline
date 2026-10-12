@@ -1,0 +1,49 @@
+name: Pipeline PR
+
+# For pull requests that change datasets: scope (agents may only touch
+# contracts and gold models), naming, contract diffs against the base branch,
+# and the generated tests in an ephemeral environment named after the PR.
+on:
+  pull_request:
+    paths:
+      - "contracts/**"
+      - "pipelines/**"
+      - "infra/airflow/dags/**"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  contractline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install
+        run: uv sync --python 3.11 --locked
+      - name: Generated Dags are up to date
+        run: uv run contractline dags $(ls -d contracts pipelines 2>/dev/null) --check
+      - name: contractline ci
+        env:
+          CONTRACTLINE_BRANCH: ${{ github.head_ref }}
+          CONTRACTLINE_PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          uv run contractline ci --base "origin/${{ github.base_ref }}" \
+            --env "pr${{ github.event.pull_request.number }}" --summary summary.md
+      - name: Post the summary on the PR
+        if: always() && hashFiles('summary.md') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file summary.md --edit-last \
+            || gh pr comment "${{ github.event.pull_request.number }}" --body-file summary.md

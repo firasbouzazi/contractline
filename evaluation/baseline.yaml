@@ -1,0 +1,18 @@
+# Hand-built effort estimates in hours (one data engineer, existing platform,
+# including tests, review and deployment). Written before any agent run; do not
+# adjust after seeing results. Replace with logged control runs when available.
+scenarios:
+  S01: { hours: 16, note: "CDC ingestion + SCD2 + masking + tests" }
+  S02: { hours: 10, note: "Kafka ingestion + hashing + tests" }
+  S03: { hours: 14, note: "file ingestion with snapshot deletes" }
+  S04: { hours: 12, note: "incremental files, late data" }
+  S05: { hours: 24, note: "out-of-order CDC history" }
+  S06: { hours: 6, note: "schema change, backfill decision" }
+  S07: { hours: 10, note: "PII review of free text" }
+  S08: { hours: 20, note: "breaking change across consumers" }
+  S09: { hours: 16, note: "special-category data" }
+  S10: { hours: 6, note: "dimension model + tests" }
+  S11: { hours: 12, note: "MRR definition + tests" }
+  S12: { hours: 12, note: "delivery KPI definition + tests" }
+  S13: { hours: 8, note: "manual erasure across tables + evidence" }
+  S14: { hours: 24, note: "new source adapter" }

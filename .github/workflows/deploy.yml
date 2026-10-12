@@ -1,0 +1,57 @@
+name: Deploy
+
+# Continuous delivery (ADR-0003): after a merge to main, build one artifact and
+# promote it dev -> staging -> prod. Production waits for a manual approval
+# (configure required reviewers on the "prod" environment in the repository
+# settings). Only this workflow holds deployment credentials, never an agent.
+#
+# Until a platform adapter is configured (Databricks, milestone 5), the deploy
+# steps produce and verify the artifact for each environment: the plan, the
+# generated Dags and the generated tests.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - name: Build the package
+        run: uv build
+      - name: Bundle the project
+        run: tar czf project.tgz contractline.yaml $(ls -d contracts pipelines 2>/dev/null || true)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: |
+            dist/
+            project.tgz
+
+  dev:
+    needs: build
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      env: dev
+
+  staging:
+    needs: dev
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      env: staging
+      smoke_test: true
+
+  prod:
+    needs: staging
+    uses: ./.github/workflows/deploy-environment.yml
+    with:
+      env: prod

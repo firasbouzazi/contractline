@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from contractline import __version__
@@ -280,3 +281,79 @@ def test_run_step_rejects_unknown_step(examples_dir: Path) -> None:
 
     assert result.exit_code == 2
     assert "no step 'sales__nothing__silver'" in result.stderr
+
+
+def _git(cwd: Path, *args: str) -> None:
+    import subprocess
+
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)  # noqa: S603, S607
+
+
+def test_ci_command_on_an_agent_branch(
+    tmp_path: Path, examples_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _git(tmp_path, "init", "-q", "-b", "main")
+    _git(tmp_path, "config", "user.email", "t@example.com")
+    _git(tmp_path, "config", "user.name", "t")
+    (tmp_path / "contractline.yaml").write_text(REPO_CONFIG.read_text())
+    (tmp_path / "contracts" / "sales").mkdir(parents=True)
+    contract = tmp_path / "contracts" / "sales" / "customers.yaml"
+    contract.write_text((examples_dir / "sales" / "customers.yaml").read_text())
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-qm", "chore: base")
+    _git(tmp_path, "checkout", "-qb", "agent/DATA-9-sales-customers")
+    contract.write_text(contract.read_text().replace("freshness: PT1H", "freshness: P1D"))
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "hack.py").write_text("x = 1\n")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-qm", "feat(sales): relax freshness")
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "ci",
+            "--base",
+            "main",
+            "--branch",
+            "agent/DATA-9-sales-customers",
+            "--pr-title",
+            "[sales/customers] relax freshness",
+            "--no-tests",
+            "--summary",
+            str(tmp_path / "summary.md"),
+        ],
+    )
+
+    assert result.exit_code == 1
+    summary = (tmp_path / "summary.md").read_text()
+    assert "- `src/hack.py`" in summary
+    assert "changed from PT1H to P1D ⚠️ **relaxes**" in summary
+    assert "version must increase (was 1.0.0, now 1.0.0)" in summary
+
+
+def test_eval_log_and_report(tmp_path: Path) -> None:
+    logs = tmp_path / "logs"
+    for kind, data in [("ticket_received", '{"agent": "test"}'), ("merged", "{}")]:
+        result = runner.invoke(
+            app, ["eval-log", "S01", kind, "--run", "r1", "--data", data, "--logs", str(logs)]
+        )
+        assert result.exit_code == 0, result.output
+    bad = runner.invoke(app, ["eval-log", "S01", "lunch", "--run", "r1", "--logs", str(logs)])
+
+    report = runner.invoke(
+        app,
+        [
+            "eval-report",
+            "--logs",
+            str(logs),
+            "--scenarios",
+            str(tmp_path),
+            "--baseline",
+            str(tmp_path / "none.yaml"),
+        ],
+    )
+
+    assert bad.exit_code == 2
+    assert report.exit_code == 0, report.output
+    assert "Scenario runs logged: **1**" in report.stdout
