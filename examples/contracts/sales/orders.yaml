@@ -1,0 +1,73 @@
+# Order events published by the shop backend to Kafka; append-only.
+api_version: contractline/v0
+
+identity:
+  name: orders
+  domain: sales
+  owner: sales-data@example.com
+  version: 1.0.0
+
+source:
+  adapter: kafka
+  mode: append_stream
+  location: sales.orders.v1
+  format: json
+
+schema:
+  drift_policy: add_columns
+  primary_key: [order_id]
+  columns:
+    - name: order_id
+      type: string
+      nullable: false
+      pii: none
+    - name: customer_id
+      type: long
+      nullable: false
+      pii: none
+    - name: status
+      type: string
+      nullable: false
+      pii: none
+    - name: total_amount
+      type: decimal(12,2)
+      nullable: false
+      pii: none
+    - name: currency_code
+      type: string
+      nullable: false
+      pii: none
+    - name: ordered_at
+      type: timestamp
+      nullable: false
+      pii: none
+
+history:
+  type: append
+
+quality:
+  - type: unique
+    columns: [order_id]
+    severity: quarantine
+  - type: not_null
+    column: customer_id
+    severity: quarantine
+  - type: referential_integrity
+    column: customer_id
+    references: sales.customers.customer_id
+    severity: warn
+  - type: range
+    column: total_amount
+    min: 0
+    severity: quarantine
+  - type: accepted_values
+    column: status
+    values: [placed, paid, shipped, cancelled, refunded]
+    severity: quarantine
+  - type: freshness
+    column: ordered_at
+    max_age: PT2H
+    severity: block
+
+sla:
+  freshness: PT15M

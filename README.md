@@ -15,14 +15,14 @@ measures whether this holds, and reports where it does not.
 | Area | State |
 | --- | --- |
 | Repository scaffold, tooling, CI | ✅ works |
-| Contract JSON Schema + validator | ❌ not started |
+| Contract JSON Schema + validator (`contractline validate`) | ✅ works |
 | Contract diff (breaking-change detection) | ❌ not started |
 | Naming conventions + `contractline lint` | ❌ not started |
 | Local Docker stack | ❌ not started |
 | Ingest, silver blocks, gold, GDPR operations | ❌ not started |
 | Evaluation | ❌ not started |
 
-Today the CLI only prints its version. Nothing here is usable for real data yet.
+Today you can write a contract and validate it. Nothing runs pipelines yet.
 
 ## Run it locally
 
@@ -32,9 +32,28 @@ Requirements: Python 3.11+, [uv](https://docs.astral.sh/uv/).
 git clone https://github.com/firasbouzazi/contractline.git
 cd contractline
 uv sync
-uv run contractline --version
+uv run contractline validate examples/contracts
 uv run pytest
 ```
+
+## A contract in brief
+
+See [`examples/contracts/sales/customers.yaml`](examples/contracts/sales/customers.yaml).
+A contract has these sections:
+
+| Section | Holds |
+| --- | --- |
+| `identity` | name, domain, owner, semver version |
+| `source` | adapter (`kafka`, `files`), ingest mode, location, format |
+| `schema` | columns (logical type, nullability, **PII class**), primary key, drift policy |
+| `privacy` | legal basis, retention, erasure key, masking per PII column |
+| `history` | `append`, `snapshot`, `scd1` or `scd2` with business key and tracked columns |
+| `quality` | rules with severity `warn`, `quarantine` or `block` |
+| `sla` | freshness |
+
+The JSON Schema is in
+[`src/contractline/core/schemas/contract-v0.json`](src/contractline/core/schemas/contract-v0.json);
+the reasoning is in [ADR-0005](docs/adr/0005-contract-format.md).
 
 ## Principles
 

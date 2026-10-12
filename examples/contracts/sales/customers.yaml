@@ -1,0 +1,97 @@
+# Customers from the CRM Postgres database, captured with CDC (Debezium) into Kafka.
+# Silver keeps full history (SCD2) of segment and contact details.
+api_version: contractline/v0
+
+identity:
+  name: customers
+  domain: sales
+  owner: sales-data@example.com
+  version: 1.0.0
+  description: One row per customer of the online shop.
+
+source:
+  adapter: kafka
+  mode: change_stream
+  location: cdc.crm.public.customers
+  format: debezium_json
+
+schema:
+  drift_policy: quarantine
+  primary_key: [customer_id]
+  columns:
+    - name: customer_id
+      type: long
+      nullable: false
+      pii: none
+    - name: email
+      type: string
+      nullable: false
+      pii: direct
+    - name: full_name
+      type: string
+      nullable: true
+      pii: direct
+    - name: birth_date
+      type: date
+      nullable: true
+      pii: indirect
+    - name: country_code
+      type: string
+      nullable: false
+      pii: none
+    - name: segment
+      type: string
+      nullable: false
+      pii: none
+    - name: created_at
+      type: timestamp
+      nullable: false
+      pii: none
+    - name: updated_at
+      type: timestamp
+      nullable: false
+      pii: none
+
+privacy:
+  legal_basis: contract
+  erasure_key: customer_id
+  retention:
+    period: P3Y
+    column: updated_at
+  masking:
+    email:
+      strategy: hash
+    full_name:
+      strategy: drop
+    birth_date:
+      strategy: generalize
+      params:
+        to: year
+
+history:
+  type: scd2
+  business_key: [customer_id]
+  tracked_columns: [email, country_code, segment]
+  sequence_column: updated_at
+
+quality:
+  - type: unique
+    columns: [customer_id]
+    severity: block
+  - type: accepted_values
+    column: segment
+    values: [consumer, business, partner]
+    severity: quarantine
+  - type: range
+    column: birth_date
+    min: "1900-01-01"
+    severity: warn
+  - type: row_count_anomaly
+    max_change_ratio: 0.5
+    severity: warn
+
+sla:
+  freshness: PT1H
+
+tags:
+  cost_center: sales

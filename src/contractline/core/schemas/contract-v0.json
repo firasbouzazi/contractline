@@ -1,0 +1,700 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/firasbouzazi/contractline/schemas/contract-v0.json",
+  "title": "contractline data contract (v0)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "api_version",
+    "identity",
+    "source",
+    "schema",
+    "history",
+    "quality",
+    "sla"
+  ],
+  "properties": {
+    "api_version": {
+      "const": "contractline/v0",
+      "description": "Version of the contract format itself, not of this contract."
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "domain",
+        "owner",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/identifier",
+          "description": "Entity name, e.g. customers."
+        },
+        "domain": {
+          "$ref": "#/$defs/identifier",
+          "description": "Business domain, e.g. sales."
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Accountable team or person."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+          "description": "Semantic version of this contract (MAJOR.MINOR.PATCH)."
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "unevaluatedProperties": false,
+      "required": [
+        "adapter",
+        "mode",
+        "location",
+        "format"
+      ],
+      "properties": {
+        "adapter": {
+          "enum": [
+            "kafka",
+            "files"
+          ]
+        },
+        "mode": {
+          "enum": [
+            "full",
+            "incremental",
+            "change_stream",
+            "append_stream"
+          ]
+        },
+        "location": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Adapter-specific location: a topic name, a folder path or URI."
+        },
+        "format": {
+          "enum": [
+            "json",
+            "avro",
+            "debezium_json",
+            "csv",
+            "parquet"
+          ]
+        },
+        "watermark_column": {
+          "$ref": "#/$defs/identifier"
+        },
+        "options": {
+          "type": "object",
+          "description": "Opaque adapter options, validated by the adapter, never by the core."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "adapter": {
+                "const": "kafka"
+              }
+            },
+            "required": [
+              "adapter"
+            ]
+          },
+          "then": {
+            "properties": {
+              "format": {
+                "enum": [
+                  "json",
+                  "avro",
+                  "debezium_json"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "adapter": {
+                "const": "files"
+              }
+            },
+            "required": [
+              "adapter"
+            ]
+          },
+          "then": {
+            "properties": {
+              "format": {
+                "enum": [
+                  "csv",
+                  "json",
+                  "parquet"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "incremental"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "watermark_column"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "format": {
+                "const": "debezium_json"
+              }
+            },
+            "required": [
+              "format"
+            ]
+          },
+          "then": {
+            "properties": {
+              "mode": {
+                "const": "change_stream"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "columns",
+        "drift_policy"
+      ],
+      "properties": {
+        "columns": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/column"
+          }
+        },
+        "primary_key": {
+          "$ref": "#/$defs/column_list"
+        },
+        "drift_policy": {
+          "enum": [
+            "fail",
+            "quarantine",
+            "add_columns"
+          ],
+          "description": "What to do when the source schema differs from the contract."
+        }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "legal_basis",
+        "retention",
+        "erasure_key",
+        "masking"
+      ],
+      "properties": {
+        "legal_basis": {
+          "enum": [
+            "consent",
+            "contract",
+            "legal_obligation",
+            "vital_interests",
+            "public_task",
+            "legitimate_interests"
+          ],
+          "description": "GDPR Article 6 lawful basis for processing."
+        },
+        "retention": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "period",
+            "column"
+          ],
+          "properties": {
+            "period": {
+              "$ref": "#/$defs/duration"
+            },
+            "column": {
+              "$ref": "#/$defs/identifier",
+              "description": "Timestamp the period counts from."
+            }
+          }
+        },
+        "erasure_key": {
+          "$ref": "#/$defs/identifier",
+          "description": "Column that identifies a data subject for right-to-erasure requests."
+        },
+        "masking": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/identifier"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/masking"
+          }
+        }
+      }
+    },
+    "history": {
+      "type": "object",
+      "unevaluatedProperties": false,
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "append",
+            "snapshot",
+            "scd1",
+            "scd2"
+          ]
+        },
+        "business_key": {
+          "$ref": "#/$defs/column_list"
+        },
+        "tracked_columns": {
+          "$ref": "#/$defs/column_list"
+        },
+        "sequence_column": {
+          "$ref": "#/$defs/identifier",
+          "description": "Orders changes for the same key (late and out-of-order records)."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "enum": [
+                  "snapshot",
+                  "scd1",
+                  "scd2"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "business_key"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "scd2"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "tracked_columns",
+              "sequence_column"
+            ]
+          }
+        }
+      ]
+    },
+    "quality": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/quality_rule"
+      }
+    },
+    "sla": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "freshness"
+      ],
+      "properties": {
+        "freshness": {
+          "$ref": "#/$defs/duration",
+          "description": "Maximum age of the newest data in silver."
+        }
+      }
+    },
+    "tags": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/identifier"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "maxLength": 63,
+      "description": "Lowercase snake_case identifier."
+    },
+    "column_list": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/identifier"
+      }
+    },
+    "duration": {
+      "type": "string",
+      "pattern": "^P(?!$)([0-9]+Y)?([0-9]+M)?([0-9]+W)?([0-9]+D)?(T(?=[0-9])([0-9]+H)?([0-9]+M)?([0-9]+S)?)?$",
+      "description": "ISO 8601 duration, e.g. P2Y, P30D, PT1H."
+    },
+    "column": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "type",
+        "nullable",
+        "pii"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z_][a-z0-9_]*$",
+          "maxLength": 63,
+          "description": "Lowercase snake_case; a leading '_' is reserved for harness columns and rejected by the validator."
+        },
+        "type": {
+          "type": "string",
+          "pattern": "^(string|integer|long|double|boolean|date|timestamp|decimal\\([0-9]+,[0-9]+\\))$",
+          "description": "Engine-agnostic logical type."
+        },
+        "nullable": {
+          "type": "boolean"
+        },
+        "pii": {
+          "enum": [
+            "none",
+            "indirect",
+            "direct",
+            "special"
+          ],
+          "description": "none; indirect (identifies only combined with other data); direct (identifies a person on its own); special (GDPR Article 9 category)."
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "masking": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "strategy"
+      ],
+      "properties": {
+        "strategy": {
+          "enum": [
+            "hash",
+            "tokenize",
+            "generalize",
+            "redact",
+            "drop",
+            "keep"
+          ]
+        },
+        "params": {
+          "type": "object"
+        },
+        "justification": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Required when strategy is keep."
+        }
+      },
+      "if": {
+        "properties": {
+          "strategy": {
+            "const": "keep"
+          }
+        },
+        "required": [
+          "strategy"
+        ]
+      },
+      "then": {
+        "required": [
+          "justification"
+        ]
+      }
+    },
+    "quality_rule": {
+      "type": "object",
+      "required": [
+        "type",
+        "severity"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "not_null",
+            "unique",
+            "accepted_values",
+            "range",
+            "referential_integrity",
+            "row_count_anomaly",
+            "freshness"
+          ]
+        },
+        "severity": {
+          "enum": [
+            "warn",
+            "quarantine",
+            "block"
+          ]
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "unevaluatedProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "not_null"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "column"
+            ],
+            "properties": {
+              "column": {
+                "$ref": "#/$defs/identifier"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "unique"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "columns"
+            ],
+            "properties": {
+              "columns": {
+                "$ref": "#/$defs/column_list"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "accepted_values"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "column",
+              "values"
+            ],
+            "properties": {
+              "column": {
+                "$ref": "#/$defs/identifier"
+              },
+              "values": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "range"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "column"
+            ],
+            "anyOf": [
+              {
+                "required": [
+                  "min"
+                ]
+              },
+              {
+                "required": [
+                  "max"
+                ]
+              }
+            ],
+            "properties": {
+              "column": {
+                "$ref": "#/$defs/identifier"
+              },
+              "min": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              },
+              "max": {
+                "type": [
+                  "number",
+                  "string"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "referential_integrity"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "column",
+              "references"
+            ],
+            "properties": {
+              "column": {
+                "$ref": "#/$defs/identifier"
+              },
+              "references": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+                "description": "<domain>.<entity>.<column> of the referenced silver dataset."
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "row_count_anomaly"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "max_change_ratio"
+            ],
+            "properties": {
+              "max_change_ratio": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "description": "Allowed relative change in row count versus the previous run."
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "freshness"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "column",
+              "max_age"
+            ],
+            "properties": {
+              "column": {
+                "$ref": "#/$defs/identifier"
+              },
+              "max_age": {
+                "$ref": "#/$defs/duration"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
