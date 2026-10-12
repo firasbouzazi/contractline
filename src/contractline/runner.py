@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from contractline.adapters.sources.files import FilesSource
 from contractline.adapters.sources.kafka import KafkaSource
 from contractline.core.contract import Contract, SourceAdapter
+from contractline.core.plan import StepKind, build_plan
 from contractline.core.project import Project
 from contractline.core.secrets import SecretProvider
 from contractline.spark.bronze import ingest_to_bronze
@@ -66,3 +67,32 @@ def run_project(
         progress(f"gold {model.domain}.{model.name}")
         summary.gold.append(run_gold(compute, model, env))
     return summary
+
+
+class UnknownStepError(ValueError):
+    pass
+
+
+def run_step(
+    compute: SparkCompute,
+    project: Project,
+    env: str,
+    step_id: str,
+    sources: SourceFactory,
+    secrets: SecretProvider,
+) -> str:
+    """Run one plan step (what an orchestrator task does). Returns a summary line."""
+    step = next((s for s in build_plan(project, env) if s.id == step_id), None)
+    if step is None:
+        raise UnknownStepError(f"no step {step_id!r} in this project")
+    if step.kind is StepKind.GOLD:
+        report = run_gold(compute, project.find_gold(step.domain, step.entity), env)
+        return f"{step_id}: {report.rows} rows"
+    contract = project.find_contract(step.domain, step.entity)
+    if step.kind is StepKind.INGEST:
+        batches = ingest_to_bronze(compute, sources(contract), contract, env)
+        return f"{step_id}: {batches} batch(es) landed"
+    reports = run_silver(compute, contract, env, secrets)
+    total = sum(r.records_in for r in reports)
+    quarantined = sum(r.records_quarantined for r in reports)
+    return f"{step_id}: {total} records, {quarantined} quarantined"

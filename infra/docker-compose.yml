@@ -100,8 +100,9 @@ services:
       AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "True"
     ports: ["8080:8080"]
     volumes:
-      # Dags here are generated from contracts (milestone 3), never hand-written.
-      - ./airflow/dags:/opt/airflow/dags
+      # Dags are generated from contracts (`contractline dags`), never hand-written.
+      # CONTRACTLINE_DAGS points at another folder, e.g. the examples' Dags.
+      - ${CONTRACTLINE_DAGS:-./airflow/dags}:/opt/airflow/dags
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api/v2/monitor/health > /dev/null"]
       interval: 10s

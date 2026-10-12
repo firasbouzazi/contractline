@@ -256,3 +256,27 @@ def test_pii_inventory_command(examples_dir: Path) -> None:
     assert result.exit_code == 0, result.output
     datasets = json.loads(result.stdout)["datasets"]
     assert {d["dataset"] for d in datasets} == {"sales.customers", "logistics.shipments"}
+
+
+def test_dags_check_command(examples_dir: Path, tmp_path: Path) -> None:
+    stale = runner.invoke(
+        app, ["dags", str(examples_dir.parent), "--out", str(tmp_path), "--check"]
+    )
+    written = runner.invoke(app, ["dags", str(examples_dir.parent), "--out", str(tmp_path)])
+    fresh = runner.invoke(
+        app, ["dags", str(examples_dir.parent), "--out", str(tmp_path), "--check"]
+    )
+
+    assert stale.exit_code == 1
+    assert written.exit_code == 0
+    assert fresh.exit_code == 0, fresh.output
+    assert "10 Dag(s) up to date." in fresh.stdout
+
+
+def test_run_step_rejects_unknown_step(examples_dir: Path) -> None:
+    result = runner.invoke(
+        app, ["run-step", "sales__nothing__silver", "--project", str(examples_dir.parent)]
+    )
+
+    assert result.exit_code == 2
+    assert "no step 'sales__nothing__silver'" in result.stderr
