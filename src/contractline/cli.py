@@ -14,6 +14,7 @@ import typer
 import yaml
 
 from contractline import __version__
+from contractline.adapters.orchestration.airflow import build_dags, find_stale_dags, write_dags
 from contractline.core.contract import Contract
 from contractline.core.diff import build_report, diff_contracts
 from contractline.core.gold import GoldModel, parse_gold
@@ -424,3 +425,66 @@ def purge(
     for record in purge_expired(LocalSparkDelta(workdir), project, env, vacuum_hours=vacuum_hours):
         deleted = ", ".join(f"{layer}: {n}" for layer, n in record.rows_deleted.items())
         typer.echo(f"{record.dataset}: {deleted}")
+
+
+@app.command("run-step")
+def run_step_command(
+    step: Annotated[str, typer.Argument(help="A step id from `contractline plan`.")],
+    project: Annotated[
+        list[Path],
+        typer.Option("--project", envvar="CONTRACTLINE_PROJECT", help="Contract and gold folders."),
+    ],
+    env: EnvOption = "local",
+    kafka_bootstrap_servers: Annotated[
+        str | None, typer.Option(envvar="CONTRACTLINE_KAFKA_BOOTSTRAP_SERVERS")
+    ] = None,
+    workdir: Annotated[
+        Path, typer.Option(envvar="CONTRACTLINE_WORKDIR", help="Local warehouse.")
+    ] = Path(".contractline"),
+) -> None:
+    """Run a single plan step: what each generated Airflow task calls."""
+    from contractline.adapters.compute.spark_delta_local import LocalSparkDelta
+    from contractline.runner import (
+        UnknownStepError,
+        build_source_factory,
+        run_step,
+    )
+
+    loaded = _load_project_or_exit(project)
+    try:
+        summary = run_step(
+            LocalSparkDelta(workdir),
+            loaded,
+            env,
+            step,
+            build_source_factory(kafka_bootstrap_servers),
+            EnvSecretProvider(),
+        )
+    except UnknownStepError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+    typer.echo(summary)
+
+
+@app.command()
+def dags(
+    paths: PathsArgument,
+    out: Annotated[Path, typer.Option(help="Airflow Dags folder.")] = Path("infra/airflow/dags"),
+    env: EnvOption = "dev",
+    check: Annotated[
+        bool, typer.Option("--check", help="Fail if the folder is not up to date; write nothing.")
+    ] = False,
+) -> None:
+    """Generate one Airflow Dag per plan step."""
+    generated = build_dags(build_plan(_load_project_or_exit(paths), env), env)
+    if check:
+        problems = find_stale_dags(generated, out)
+        for problem in problems:
+            typer.echo(problem, err=True)
+        if problems:
+            typer.echo("Run `contractline dags` to regenerate.", err=True)
+            raise typer.Exit(code=1)
+        typer.echo(f"{len(generated)} Dag(s) up to date.")
+        return
+    for change in write_dags(generated, out) or ["no changes"]:
+        typer.echo(change)

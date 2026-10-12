@@ -41,6 +41,8 @@ jobs:
         run: uv run lint-imports
       - name: Validate example contracts
         run: uv run contractline validate examples
+      - name: Generated Airflow Dags are up to date
+        run: uv run contractline dags examples --out examples/airflow/dags --check
       - name: Lint naming conventions
         env:
           BRANCH: ${{ github.head_ref || github.ref_name }}

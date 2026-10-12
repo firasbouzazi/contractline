@@ -12,6 +12,7 @@ from contractline.core.contract import Contract, RuleType
 from contractline.core.gold import GoldModel
 from contractline.core.naming import Layer, build_dag_id, build_dataset_name, build_resource_tags
 from contractline.core.project import Project
+from contractline.core.schedule import build_ingest_schedule
 
 
 class StepKind(StrEnum):
@@ -30,6 +31,8 @@ class Step:
     writes: tuple[str, ...]
     depends_on: tuple[str, ...]
     tags: tuple[tuple[str, str], ...] = ()
+    schedule: str | None = None
+    """Cron for steps that start from a source; None when upstream data triggers them."""
 
 
 def _silver_dependencies(contract: Contract, known: set[str]) -> list[str]:
@@ -66,6 +69,7 @@ def build_plan(project: Project, env: str) -> list[Step]:
                 writes=(bronze,),
                 depends_on=(),
                 tags=tags,
+                schedule=build_ingest_schedule(contract.sla.freshness),
             )
         )
         steps.append(
@@ -121,4 +125,6 @@ def format_plan(steps: list[Step]) -> str:
         lines.append(f"      writes: {', '.join(step.writes)}")
         if step.depends_on:
             lines.append(f"      after:  {', '.join(step.depends_on)}")
+        if step.schedule:
+            lines.append(f"      every:  {step.schedule}")
     return "\n".join(lines)
