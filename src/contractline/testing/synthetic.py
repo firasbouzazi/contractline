@@ -25,6 +25,7 @@ from contractline.core.contract import (
     PiiClass,
     RuleType,
     Severity,
+    SourceAdapter,
 )
 
 START = datetime(2026, 1, 1, tzinfo=UTC)
@@ -53,6 +54,8 @@ class SyntheticData:
     """Values generated per column, so other datasets can reference them."""
     now: datetime = START
     """A clock just after the last event, for freshness rules."""
+    batch_times: list[datetime] = field(default_factory=list)
+    """When each batch was produced (a file's modification time)."""
 
 
 class _Values:
@@ -156,7 +159,11 @@ def generate(
     keys = list(contract.history.business_key or contract.schema.primary_key)
     sequence_column = contract.history.sequence_column
     cdc = contract.source.format == "debezium_json"
-    changes = contract.source.mode is IngestMode.CHANGE_STREAM
+    mode = contract.source.mode
+    changes = mode in (IngestMode.CHANGE_STREAM, IngestMode.INCREMENTAL, IngestMode.FULL)
+    deletes = mode in (IngestMode.CHANGE_STREAM, IngestMode.FULL)
+    files = contract.source.adapter is SourceAdapter.FILES
+    as_text = contract.source.format == "csv"
 
     # Each event: (event time, op, values or None for delete, before-image).
     events: list[tuple[datetime, str, dict[str, Any] | None, dict[str, Any] | None]] = []
@@ -189,7 +196,7 @@ def generate(
                 updated[sequence_column] = at.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
             events.append((at, "u", updated, current))
             current = updated
-        if number % 7 == 0:  # delete; every other deleted key comes back
+        if deletes and number % 7 == 0:  # delete; every other deleted key comes back
             at = at + timedelta(hours=1)
             events.append((at, "d", None, current))
             if number % 14 == 0:
@@ -220,6 +227,11 @@ def generate(
         if image is None:
             raise ValueError("an event needs an after or a before image")
         key = _key_text(contract, image)
+        if files:
+            if row is None:
+                raise ValueError("files sources carry no deletes")
+            text = {k: _as_csv_text(v) for k, v in row.items()} if as_text else row
+            return Message(None, json.dumps(text))
         if cdc:
             value = {
                 "before": _debezium_value(contract, before),
@@ -230,8 +242,15 @@ def generate(
             return Message(key, json.dumps(value))
         return Message(key, json.dumps(row))
 
+    if files:
+        # Files carry rows, not change events: deletes exist only as absence
+        # from a full snapshot.
+        events.sort(key=lambda e: e[0])
+    third = max(1, len([e for e in events if e[2] is not None or not files]) // 3)
     messages = [
-        encode(op, row, before, at, lsn) for lsn, (at, op, row, before) in enumerate(events, 1)
+        encode(op, row, before, at, lsn)
+        for lsn, (at, op, row, before) in enumerate(events, 1)
+        if row is not None or not files
     ]
 
     # Edge cases appended to the stream.
@@ -266,11 +285,57 @@ def generate(
         extras.append(duplicate)  # the same change delivered twice
 
     # Arrival: three batches; some changes arrive late, after newer ones.
-    third = max(1, len(messages) // 3)
     first, second, rest = messages[:third], messages[third : 2 * third], messages[2 * third :]
     late = [m for i, m in enumerate(second) if i % 5 == 0]
     second = [m for m in second if m not in late]
     data.batches = [first, second + extras, rest + late]
-    data.batches = [b for b in data.batches if b]
+    ordered = sorted(at for at, *_ in events)
+    data.batch_times = [ordered[min(len(ordered) - 1, (i + 1) * third - 1)] for i in range(3)]
+    if mode is IngestMode.FULL:
+        data.batches, data.deleted_keys, data.batch_times = _build_snapshots(
+            events, extras, keys, encode
+        )
     data.now = max(at for at, *_ in events) + timedelta(minutes=1)
+    data.batch_times = [t for t, b in zip(data.batch_times, data.batches, strict=True) if b]
+    data.batches = [b for b in data.batches if b]
     return data
+
+
+def _as_csv_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def _build_snapshots(
+    events: list[tuple[datetime, str, dict[str, Any] | None, dict[str, Any] | None]],
+    extras: list[Message],
+    keys: list[str],
+    encode: Any,
+) -> tuple[list[list[Message]], set[tuple[Any, ...]], list[datetime]]:
+    """Three full snapshots of the live rows, taken a third of the way through,
+    two thirds, and at the end. Keys gone from the last snapshot were deleted."""
+    live: dict[tuple[Any, ...], dict[str, Any]] = {}
+    ever: set[tuple[Any, ...]] = set()
+    snapshots: list[list[Message]] = []
+    times: list[datetime] = []
+    cuts = {len(events) // 3, 2 * len(events) // 3, len(events)}
+    for index, (at, op, row, before) in enumerate(events, 1):
+        image = row if row is not None else before
+        if image is None:
+            continue
+        key = tuple(image[k] for k in keys)
+        ever.add(key)
+        if op == "d":
+            live.pop(key, None)
+        else:
+            live[key] = row or image
+        if index in cuts:
+            snapshot = [encode("r", r, None, at, index) for r in live.values()]
+            if len(snapshots) == 1:
+                snapshot += extras
+            snapshots.append(snapshot)
+            times.append(at)
+    return snapshots, ever - set(live), times

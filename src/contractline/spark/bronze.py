@@ -30,7 +30,7 @@ from pyspark.sql import Column, DataFrame
 from pyspark.sql import functions as F
 from pyspark.sql import types as T
 
-from contractline.core.contract import Contract
+from contractline.core.contract import Contract, IngestMode
 from contractline.core.naming import Layer, build_dataset_name
 from contractline.spark.interfaces import SparkCompute, SparkSource
 
@@ -142,6 +142,52 @@ def map_debezium(raw: DataFrame, contract: Contract) -> DataFrame:
 
 class UnsupportedSourceError(ValueError):
     pass
+
+
+_FILE_OPS = {
+    IngestMode.FULL: OP_SNAPSHOT,
+    IngestMode.INCREMENTAL: OP_UPDATE,
+    IngestMode.APPEND_STREAM: OP_INSERT,
+}
+
+
+def map_files(raw: DataFrame, contract: Contract) -> DataFrame:
+    """File rows to envelope rows.
+
+    ``raw`` has ``payload`` (one JSON object per row), ``file_path`` and
+    ``file_modified_at``. Rows are identified by file and content: two identical
+    rows in one file land once. Order: the watermark column for incremental
+    sources, otherwise the file's modification time.
+    """
+    mode = contract.source.mode
+    if mode not in _FILE_OPS:
+        raise UnsupportedSourceError(f"files sources do not support {mode}")
+    keys = list(contract.history.business_key or contract.schema.primary_key)
+    key = (
+        F.to_json(F.struct(*[F.get_json_object("payload", f"$.{k}").alias(k) for k in keys]))
+        if keys
+        else F.lit(None).cast("string")
+    )
+    file_order = F.unix_micros(F.col("file_modified_at"))
+    sequence = file_order
+    watermark = contract.source.watermark_column
+    if mode is IngestMode.INCREMENTAL and watermark:
+        sequence = F.coalesce(
+            F.unix_micros(F.get_json_object("payload", f"$.{watermark}").try_cast("timestamp")),
+            file_order,
+        )
+    return raw.select(
+        key.alias("_key"),
+        F.col("payload").alias("_payload"),
+        F.lit(_FILE_OPS[mode]).alias("_op"),
+        F.lit("files").alias("_source_system"),
+        F.col("file_path").alias("_source_location"),
+        F.concat(F.col("file_path"), F.lit("#"), F.sha2(F.col("payload"), 256)).alias(
+            "_source_offset"
+        ),
+        sequence.alias("_sequence"),
+        F.col("file_modified_at").alias("_source_at"),
+    )
 
 
 def map_kafka_to_envelope(raw: DataFrame, contract: Contract) -> DataFrame:

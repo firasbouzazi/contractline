@@ -16,10 +16,16 @@ from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 from pyspark.sql import types as T
 
-from contractline.core.contract import Contract, HistoryType, MaskingStrategy, Severity
+from contractline.core.contract import (
+    Contract,
+    HistoryType,
+    MaskingStrategy,
+    Severity,
+    SourceAdapter,
+)
 from contractline.core.naming import Layer, build_dataset_name
 from contractline.core.project import Project
-from contractline.spark.bronze import map_kafka_to_envelope, write_bronze_batch
+from contractline.spark.bronze import map_files, map_kafka_to_envelope, write_bronze_batch
 from contractline.spark.checks import find_duplicate_keys, find_scd2_violations
 from contractline.spark.gold import build_silver_schema, run_gold, run_gold_test
 from contractline.spark.history import IS_CURRENT, get_business_key
@@ -87,6 +93,17 @@ def _kafka_frame(
         for i, m in enumerate(messages)
     ]
     return compute.spark.createDataFrame(rows, KAFKA_SCHEMA)
+
+
+def _files_frame(
+    compute: SparkCompute, contract: Contract, messages: list[Message], number: int, at: datetime
+) -> DataFrame:
+    identity, extension = contract.identity, contract.source.format
+    path = f"synthetic/{identity.domain}/{identity.name}/{number}.{extension}"
+    rows = [(m.value, path, at.replace(tzinfo=None)) for m in messages]
+    return compute.spark.createDataFrame(
+        rows, "payload string, file_path string, file_modified_at timestamp"
+    )
 
 
 def _table(compute: SparkCompute, logical: str) -> DataFrame | None:
@@ -205,9 +222,14 @@ def run_generated_tests(
         offset = 0
         try:
             for number, batch in enumerate(data.batches):
-                raw = _kafka_frame(compute, contract, batch, offset)
+                if contract.source.adapter is SourceAdapter.FILES:
+                    raw = _files_frame(compute, contract, batch, number, data.batch_times[number])
+                    envelope = map_files(raw, contract)
+                else:
+                    raw = _kafka_frame(compute, contract, batch, offset)
+                    envelope = map_kafka_to_envelope(raw, contract)
                 offset += len(batch)
-                write_bronze_batch(compute, bronze, map_kafka_to_envelope(raw, contract), number)
+                write_bronze_batch(compute, bronze, envelope, number)
                 run_silver(compute, contract, env, secrets, now)
         except Exception as exc:  # the pipeline itself failing is a test failure
             report.add(target, "pipeline runs", [f"{type(exc).__name__}: {exc}".splitlines()[0]])

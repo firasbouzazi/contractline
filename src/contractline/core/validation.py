@@ -181,6 +181,19 @@ def check_semantics(contract: Contract) -> list[ContractError]:
                 "source.watermark_column",
                 f"watermark column must be a date, timestamp or number, not {wm_type}",
             )
+    mode_history = {
+        IngestMode.FULL: (HistoryType.SNAPSHOT, HistoryType.SCD1, HistoryType.SCD2),
+        IngestMode.INCREMENTAL: (HistoryType.SCD1, HistoryType.SCD2, HistoryType.APPEND),
+        IngestMode.CHANGE_STREAM: (HistoryType.SCD1, HistoryType.SCD2, HistoryType.APPEND),
+        IngestMode.APPEND_STREAM: (HistoryType.APPEND, HistoryType.SCD1, HistoryType.SCD2),
+    }
+    if contract.history.type not in mode_history[source.mode]:
+        allowed = ", ".join(h.value for h in mode_history[source.mode])
+        error(
+            "history.type",
+            f"{contract.history.type} history does not fit a {source.mode} source; "
+            f"use one of: {allowed}",
+        )
     if source.mode is IngestMode.CHANGE_STREAM and not contract.schema.primary_key:
         error("schema.primary_key", "a change_stream source needs a primary_key")
 

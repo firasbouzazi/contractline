@@ -1,0 +1,42 @@
+# Daily file from the treasury system: the full list of exchange rates.
+# A currency missing from today's file is no longer quoted.
+api_version: contractline/v0
+
+identity:
+  name: exchange_rates
+  domain: finance
+  owner: finance-data@example.com
+  version: 1.0.0
+  description: One row per quoted currency with its rate to the euro.
+
+source:
+  adapter: files
+  mode: full
+  location: /data/landing/finance/exchange_rates/
+  format: csv
+
+schema:
+  drift_policy: fail
+  primary_key: [currency_code]
+  columns:
+    - { name: currency_code, type: string, nullable: false, pii: none }
+    - { name: rate_to_eur, type: "decimal(18,8)", nullable: false, pii: none }
+    - { name: quoted_at, type: timestamp, nullable: false, pii: none }
+
+history:
+  type: scd2
+  business_key: [currency_code]
+  tracked_columns: [rate_to_eur]
+  sequence_column: quoted_at
+
+quality:
+  - type: unique
+    columns: [currency_code]
+    severity: block
+  - type: range
+    column: rate_to_eur
+    min: 0
+    severity: quarantine
+
+sla:
+  freshness: P1D

@@ -6,6 +6,7 @@ This is the only module that wires platform adapters to blocks.
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from contractline.adapters.sources.files import FilesSource
 from contractline.adapters.sources.kafka import KafkaSource
 from contractline.core.contract import Contract, SourceAdapter
 from contractline.core.project import Project
@@ -39,7 +40,9 @@ def build_source_factory(kafka_bootstrap: str | None) -> SourceFactory:
                     "pass --kafka-bootstrap-servers"
                 )
             return KafkaSource(kafka_bootstrap)
-        raise MissingSourceError(f"no source adapter for {contract.source.adapter} yet")
+        if contract.source.adapter is SourceAdapter.FILES:
+            return FilesSource()
+        raise MissingSourceError(f"no source adapter for {contract.source.adapter}")
 
     return factory
 

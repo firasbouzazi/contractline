@@ -90,9 +90,19 @@ def test_reports_all_errors_not_only_the_first(customers: dict[str, Any]) -> Non
             id="format-incompatible-with-adapter",
         ),
         pytest.param(
-            lambda d: d["source"].update(mode="incremental", format="json"),
+            lambda d: d["source"].update(adapter="files", mode="incremental", format="csv"),
             "source: 'watermark_column' is a required property",
             id="incremental-without-watermark",
+        ),
+        pytest.param(
+            lambda d: d["source"].update(mode="full", format="json"),
+            "source.mode: 'full' is not one of ['change_stream', 'append_stream']",
+            id="kafka-full-snapshot",
+        ),
+        pytest.param(
+            lambda d: d["source"].update(adapter="files", mode="change_stream", format="csv"),
+            "source.mode: 'change_stream' is not one of ['full', 'incremental', 'append_stream']",
+            id="files-change-stream",
         ),
         pytest.param(
             lambda d: d["source"].update(mode="append_stream"),
@@ -156,6 +166,11 @@ def test_schema_errors(customers: dict[str, Any], mutate: Any, expected: str) ->
     ("mutate", "expected"),
     [
         pytest.param(
+            lambda d: d["history"].update(type="snapshot"),
+            "history.type: snapshot history does not fit a change_stream source",
+            id="snapshot-from-change-stream",
+        ),
+        pytest.param(
             lambda d: d["schema"]["columns"].append(copy.deepcopy(d["schema"]["columns"][0])),
             "schema.columns[8].name: duplicate column 'customer_id'",
             id="duplicate-column",
@@ -196,7 +211,7 @@ def test_schema_errors(customers: dict[str, Any], mutate: Any, expected: str) ->
         ),
         pytest.param(
             lambda d: d["source"].update(
-                mode="incremental", format="json", watermark_column="segment"
+                adapter="files", mode="incremental", format="csv", watermark_column="segment"
             ),
             "source.watermark_column: watermark column must be a date, timestamp or number, "
             "not string",

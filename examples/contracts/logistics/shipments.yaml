@@ -1,0 +1,60 @@
+# Shipment status changes exported every hour by the carrier as JSON lines.
+# Each file holds the shipments that changed since the previous export.
+api_version: contractline/v0
+
+identity:
+  name: shipments
+  domain: logistics
+  owner: logistics-data@example.com
+  version: 1.0.0
+  description: The latest known state of each shipment.
+
+source:
+  adapter: files
+  mode: incremental
+  location: /data/landing/logistics/shipments/
+  format: json
+  watermark_column: updated_at
+
+schema:
+  drift_policy: quarantine
+  primary_key: [shipment_id]
+  columns:
+    - { name: shipment_id, type: string, nullable: false, pii: none }
+    - { name: order_id, type: string, nullable: false, pii: none }
+    - { name: status, type: string, nullable: false, pii: none }
+    - { name: recipient_name, type: string, nullable: true, pii: direct }
+    - { name: postal_code, type: string, nullable: true, pii: indirect }
+    - { name: is_delivered, type: boolean, nullable: false, pii: none }
+    - { name: updated_at, type: timestamp, nullable: false, pii: none }
+
+privacy:
+  legal_basis: contract
+  erasure_key: shipment_id
+  retention:
+    period: P1Y
+    column: updated_at
+  masking:
+    recipient_name: { strategy: redact }
+    postal_code: { strategy: generalize, params: { keep_chars: 2 } }
+
+history:
+  type: scd1
+  business_key: [shipment_id]
+  sequence_column: updated_at
+
+quality:
+  - type: unique
+    columns: [shipment_id]
+    severity: block
+  - type: accepted_values
+    column: status
+    values: [created, in_transit, delivered, returned]
+    severity: quarantine
+  - type: referential_integrity
+    column: order_id
+    references: sales.orders.order_id
+    severity: warn
+
+sla:
+  freshness: PT2H

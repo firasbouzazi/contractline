@@ -179,6 +179,51 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "adapter": {
+                "const": "files"
+              }
+            },
+            "required": [
+              "adapter"
+            ]
+          },
+          "then": {
+            "properties": {
+              "mode": {
+                "enum": [
+                  "full",
+                  "incremental",
+                  "append_stream"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "adapter": {
+                "const": "kafka"
+              }
+            },
+            "required": [
+              "adapter"
+            ]
+          },
+          "then": {
+            "properties": {
+              "mode": {
+                "enum": [
+                  "change_stream",
+                  "append_stream"
+                ]
+              }
+            }
+          }
         }
       ]
     },
