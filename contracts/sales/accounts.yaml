@@ -1,0 +1,98 @@
+# sales/accounts: business customers from the CRM, with history of who manages
+# them and at which tier. Source: Postgres crm.public.accounts via Debezium.
+api_version: contractline/v0
+
+identity:
+  name: accounts
+  domain: sales
+  owner: sales-data@example.com
+  version: 0.1.0
+  description: >
+    One row per business account (company) of the CRM, with the history of its
+    account manager and tier.
+
+source:
+  adapter: kafka
+  mode: change_stream
+  location: cdc.crm.public.accounts
+  format: debezium_json
+
+schema:
+  drift_policy: quarantine
+  primary_key: [account_id]
+  columns:
+    - name: account_id
+      type: long
+      nullable: false
+      pii: none
+    - name: company_name
+      type: string
+      nullable: false
+      # A sole trader's company name can be the person's own name.
+      pii: indirect
+    - name: vat_number
+      type: string
+      nullable: true
+      # A sole trader's VAT number identifies the person.
+      pii: indirect
+    - name: account_manager_email
+      type: string
+      nullable: true
+      # An employee's work email is personal data.
+      pii: direct
+    - name: country_code
+      type: string
+      nullable: false
+      pii: none
+    - name: tier
+      type: string
+      nullable: false
+      pii: none
+    - name: created_at
+      type: timestamp
+      nullable: false
+      pii: none
+    - name: updated_at
+      type: timestamp
+      nullable: false
+      pii: none
+
+privacy:
+  legal_basis: legitimate_interests
+  erasure_key: account_id
+  retention:
+    period: P3Y
+    column: updated_at
+  masking:
+    company_name:
+      strategy: keep
+      justification: >
+        Sales reporting needs the company name; for sole traders it is kept
+        under legitimate interest and covered by erasure on account_id.
+    vat_number:
+      strategy: hash
+    account_manager_email:
+      strategy: hash
+
+history:
+  type: scd2
+  business_key: [account_id]
+  tracked_columns: [account_manager_email, tier]
+  sequence_column: updated_at
+
+quality:
+  - type: unique
+    columns: [account_id]
+    severity: block
+  - type: accepted_values
+    column: tier
+    # The ticket lists bronze, silver and gold, and says closed accounts get
+    # tier = closed. Open question to the data owner: is "closed" a tier?
+    values: [bronze, silver, gold, closed]
+    severity: quarantine
+  - type: row_count_anomaly
+    max_change_ratio: 0.5
+    severity: warn
+
+sla:
+  freshness: PT1H
