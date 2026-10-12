@@ -71,6 +71,7 @@ files = ["src", "tests"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers --strict-config"
+markers = ["spark: starts a local Spark session (slow)"]
 
 [tool.importlinter]
 root_package = "contractline"

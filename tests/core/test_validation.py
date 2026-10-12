@@ -285,6 +285,37 @@ def test_schema_errors(customers: dict[str, Any], mutate: Any, expected: str) ->
             id="dataset-rule-quarantine",
         ),
         pytest.param(
+            lambda d: d["privacy"]["masking"]["birth_date"].update(params={"to": "day"}),
+            "privacy.masking.birth_date.params: generalize on a date or timestamp takes",
+            id="generalize-date-unit",
+        ),
+        pytest.param(
+            lambda d: d["privacy"]["masking"].update(
+                full_name={"strategy": "generalize", "params": {"bucket": 3}}
+            ),
+            "privacy.masking.full_name.params: generalize on a string needs 'keep_chars",
+            id="generalize-string-params",
+        ),
+        pytest.param(
+            lambda d: d["privacy"]["masking"].update(
+                email={"strategy": "redact", "params": {"key": "x"}}
+            ),
+            "privacy.masking.email.params: 'key' names a secret",
+            id="key-on-redact",
+        ),
+        pytest.param(
+            lambda d: d["privacy"]["masking"].update(
+                email={"strategy": "hash", "params": {"rounds": 3}}
+            ),
+            "privacy.masking.email.params: hash takes no parameters: rounds",
+            id="unknown-hash-param",
+        ),
+        pytest.param(
+            lambda d: d["quality"][0].update(severity="quarantine"),
+            "quality[0].severity: unique on scd2 history is checked on the current rows",
+            id="unique-quarantine-keyed",
+        ),
+        pytest.param(
             lambda d: d["quality"].append(
                 {"type": "range", "column": "customer_id", "min": 10, "max": 1, "severity": "warn"}
             ),

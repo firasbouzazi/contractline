@@ -24,3 +24,10 @@ def compute(tmp_path_factory: pytest.TempPathFactory) -> LocalSparkDelta:
 def env() -> str:
     """A fresh ephemeral environment name per test, so tables never collide."""
     return f"pr{next(_ENV_NUMBERS)}"
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Tests that start Spark are marked ``spark`` so CI can run them once."""
+    for item in items:
+        if "compute" in getattr(item, "fixturenames", ()):
+            item.add_marker(pytest.mark.spark)
