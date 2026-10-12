@@ -10,11 +10,9 @@ from dataclasses import dataclass, field
 from pyspark.sql import DataFrame, SparkSession
 
 from contractline.core.contract import Contract, SourceAdapter
-from contractline.spark.bronze import map_debezium, map_kafka_json
+from contractline.spark.bronze import UnsupportedSourceError, map_kafka_to_envelope
 
-
-class UnsupportedSourceError(ValueError):
-    pass
+__all__ = ["KafkaSource", "UnsupportedSourceError"]
 
 
 @dataclass(frozen=True)
@@ -41,8 +39,4 @@ class KafkaSource:
 
     @staticmethod
     def map_to_envelope(raw: DataFrame, contract: Contract) -> DataFrame:
-        if contract.source.format == "debezium_json":
-            return map_debezium(raw, contract)
-        if contract.source.format == "json":
-            return map_kafka_json(raw)
-        raise UnsupportedSourceError(f"Kafka format {contract.source.format!r} is not supported")
+        return map_kafka_to_envelope(raw, contract)

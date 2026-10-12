@@ -1,28 +1,48 @@
 name: Local stack
 
-# Runs only when the stack changes; it is slower than the main CI.
+# The full pipeline on the Docker stack: Postgres -> Debezium -> Kafka ->
+# bronze -> silver -> gold. Slower than the main CI, so it runs only when the
+# pipeline, the stack or the examples change.
 on:
   pull_request:
-    paths: ["infra/**", "Makefile", ".github/workflows/local-stack.yml"]
+    paths:
+      - "infra/**"
+      - "src/**"
+      - "examples/**"
+      - "tests_e2e/**"
+      - "Makefile"
+      - ".github/workflows/local-stack.yml"
   push:
     branches: [main]
-    paths: ["infra/**", "Makefile", ".github/workflows/local-stack.yml"]
 
 permissions:
   contents: read
 
 jobs:
-  smoke:
+  e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install
+        run: uv sync --python 3.11 --locked
       - name: Start all services
         run: |
           docker compose -f infra/docker-compose.yml --profile cdc --profile orchestration up -d --wait
           docker compose -f infra/docker-compose.yml --profile cdc run --rm connect-init
       - name: Smoke test
         run: make smoke-all
+      - name: End-to-end pipeline
+        run: |
+          infra/e2e-data.sh
+          uv run pytest tests_e2e -v
       - name: Logs on failure
         if: failure()
         run: docker compose -f infra/docker-compose.yml --profile cdc --profile orchestration logs

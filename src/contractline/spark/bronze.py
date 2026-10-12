@@ -31,7 +31,8 @@ from pyspark.sql import functions as F
 from pyspark.sql import types as T
 
 from contractline.core.contract import Contract
-from contractline.spark.interfaces import SparkCompute
+from contractline.core.naming import Layer, build_dataset_name
+from contractline.spark.interfaces import SparkCompute, SparkSource
 
 ENVELOPE_SCHEMA = T.StructType(
     [
@@ -139,6 +140,19 @@ def map_debezium(raw: DataFrame, contract: Contract) -> DataFrame:
     )
 
 
+class UnsupportedSourceError(ValueError):
+    pass
+
+
+def map_kafka_to_envelope(raw: DataFrame, contract: Contract) -> DataFrame:
+    """Pick the mapper for a Kafka contract's message format."""
+    if contract.source.format == "debezium_json":
+        return map_debezium(raw, contract)
+    if contract.source.format == "json":
+        return map_kafka_json(raw)
+    raise UnsupportedSourceError(f"Kafka format {contract.source.format!r} is not supported")
+
+
 def add_ingestion_columns(envelope: DataFrame, batch_id: str) -> DataFrame:
     """Stamp a batch with its id and landing time, in envelope column order."""
     return envelope.select(
@@ -181,3 +195,32 @@ def write_bronze_batch(
         .option("txnVersion", batch_id)
         .saveAsTable(table)
     )
+
+
+def ingest_to_bronze(
+    compute: SparkCompute, source: SparkSource, contract: Contract, env: str
+) -> int:
+    """Land everything new from the source in bronze, then stop.
+
+    Returns the number of micro-batches written. The checkpoint remembers how
+    far the source was read, so the next run starts where this one ended.
+    """
+    logical = build_dataset_name(
+        env, Layer.BRONZE, contract.identity.domain, contract.identity.name
+    )
+    ensure_bronze_table(compute, logical)
+    batches: list[int] = []
+
+    def write(batch: DataFrame, epoch: int) -> None:
+        write_bronze_batch(compute, logical, batch, epoch)
+        batches.append(epoch)
+
+    query = (
+        source.read_envelope_stream(compute.spark, contract)
+        .writeStream.foreachBatch(write)
+        .option("checkpointLocation", compute.build_checkpoint_path(logical))
+        .trigger(availableNow=True)
+        .start()
+    )
+    query.awaitTermination()
+    return len(batches)

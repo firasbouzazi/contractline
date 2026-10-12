@@ -2,7 +2,9 @@
 
 from typing import Protocol
 
-from pyspark.sql import SparkSession
+from pyspark.sql import DataFrame, SparkSession
+
+from contractline.core.contract import Contract
 
 
 class SparkCompute(Protocol):
@@ -22,3 +24,9 @@ class SparkCompute(Protocol):
     def build_checkpoint_path(self, logical_name: str) -> str:
         """Storage path for streaming checkpoints that feed ``logical_name``."""
         ...
+
+
+class SparkSource(Protocol):
+    """A source adapter: a streaming DataFrame of envelope rows for a contract."""
+
+    def read_envelope_stream(self, spark: SparkSession, contract: Contract) -> DataFrame: ...
