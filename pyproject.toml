@@ -63,11 +63,12 @@ ignore = ["N812"]
 [tool.ruff.lint.per-file-ignores]
 # Tests build SQL on purpose (for example to prove gold isolation catches it).
 "tests/**" = ["S101", "S608"]
+"tests_e2e/**" = ["S101"]
 
 [tool.mypy]
 python_version = "3.11"
 strict = true
-files = ["src", "tests"]
+files = ["src", "tests", "tests_e2e"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -95,4 +96,16 @@ forbidden_modules = [
 name = "Blocks never depend on platform adapters (ADR-0010)"
 type = "forbidden"
 source_modules = ["contractline.spark"]
+forbidden_modules = ["contractline.adapters"]
+
+[[tool.importlinter.contracts]]
+name = "Synthetic data needs no engine"
+type = "forbidden"
+source_modules = ["contractline.testing.synthetic"]
+forbidden_modules = ["contractline.spark", "contractline.adapters", "pyspark"]
+
+[[tool.importlinter.contracts]]
+name = "Generated tests never depend on platform adapters"
+type = "forbidden"
+source_modules = ["contractline.testing"]
 forbidden_modules = ["contractline.adapters"]

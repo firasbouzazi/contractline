@@ -216,3 +216,35 @@ def test_validate_reports_gold_without_sql(tmp_path: Path, examples_dir: Path) -
 
     assert result.exit_code == 1
     assert "missing SQL file fct_orders.sql" in result.stderr
+
+
+def test_plan_command(examples_dir: Path) -> None:
+    result = runner.invoke(app, ["plan", str(examples_dir.parent), "--env", "pr3"])
+
+    assert result.exit_code == 0, result.output
+    assert "pr3_gold.sales.agg_daily_revenue" in result.stdout
+
+
+def test_plan_rejects_unknown_env(examples_dir: Path) -> None:
+    result = runner.invoke(app, ["plan", str(examples_dir.parent), "--env", "production"])
+
+    assert result.exit_code == 2
+
+
+def test_new_dataset_creates_a_valid_contract(tmp_path: Path) -> None:
+    (tmp_path / "contractline.yaml").write_text(REPO_CONFIG.read_text())
+
+    created = runner.invoke(
+        app, ["new-dataset", "--domain", "sales", "--entity", "returns", "--root", str(tmp_path)]
+    )
+    again = runner.invoke(
+        app, ["new-dataset", "--domain", "sales", "--entity", "returns", "--root", str(tmp_path)]
+    )
+    unknown = runner.invoke(
+        app, ["new-dataset", "--domain", "crm", "--entity", "x", "--root", str(tmp_path)]
+    )
+
+    assert created.exit_code == 0, created.output
+    assert runner.invoke(app, ["validate", str(tmp_path / "contracts")]).exit_code == 0
+    assert again.exit_code == 1
+    assert unknown.exit_code == 2

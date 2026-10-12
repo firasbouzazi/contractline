@@ -5,6 +5,7 @@ Commands are added one per change as they are implemented
 """
 
 import json
+import tempfile
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
@@ -24,7 +25,12 @@ from contractline.core.lint import (
     lint_gold_model,
     lint_pull_request_title,
 )
+from contractline.core.naming import is_valid_environment
+from contractline.core.plan import build_plan, format_plan
+from contractline.core.project import Project, ProjectError, load_project
 from contractline.core.project_config import ConfigError, find_config, load_config
+from contractline.core.scaffold import build_contract_skeleton
+from contractline.core.secrets import EnvSecretProvider
 from contractline.core.validation import (
     ContractError,
     InvalidContractError,
@@ -216,3 +222,133 @@ def lint(
         typer.echo(f"{len(issues)} problem(s) found.", err=True)
         raise typer.Exit(code=1)
     typer.echo("No problems found.")
+
+
+def _load_project_or_exit(paths: list[Path]) -> Project:
+    try:
+        return load_project(paths)
+    except (InvalidContractError, ProjectError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+
+
+PathsArgument = Annotated[
+    list[Path],
+    typer.Argument(exists=True, help="Contract and gold model files, or directories."),
+]
+EnvOption = Annotated[str, typer.Option("--env", help="local, dev, staging, prod or pr<number>.")]
+
+
+@app.command()
+def plan(paths: PathsArgument, env: EnvOption = "dev") -> None:
+    """Show the steps a run would take, in order, with the tables they touch."""
+    if not is_valid_environment(env):
+        typer.echo(f"Unknown environment {env!r}.", err=True)
+        raise typer.Exit(code=2)
+    typer.echo(format_plan(build_plan(_load_project_or_exit(paths), env)))
+
+
+@app.command("test")
+def run_tests(
+    paths: PathsArgument,
+    env: EnvOption = "local",
+    seed: Annotated[int, typer.Option(help="Seed for the synthetic data.")] = 7,
+    report: Annotated[
+        Path | None, typer.Option("--report", help="Also write the results as JSON.")
+    ] = None,
+    workdir: Annotated[
+        Path | None, typer.Option(help="Where tables are written (default: a temporary folder).")
+    ] = None,
+) -> None:
+    """Run the generated tests: synthetic data through the real pipeline."""
+    # Spark is imported here, not at the top, so validate and lint work without Java.
+    from contractline.adapters.compute.spark_delta_local import LocalSparkDelta
+    from contractline.testing.generated import format_report, run_generated_tests
+
+    if not is_valid_environment(env):
+        typer.echo(f"Unknown environment {env!r}.", err=True)
+        raise typer.Exit(code=2)
+    project = _load_project_or_exit(paths)
+    root = workdir or Path(tempfile.mkdtemp(prefix="contractline-test-"))
+    results = run_generated_tests(
+        LocalSparkDelta(root), project, env, seed, progress=lambda m: typer.echo(f"... {m}")
+    )
+    typer.echo(format_report(results))
+    if report:
+        report.write_text(results.to_json(), "utf-8")
+    if not results.passed:
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def run(
+    paths: PathsArgument,
+    env: EnvOption = "local",
+    kafka_bootstrap_servers: Annotated[
+        str | None, typer.Option(help="Kafka brokers, e.g. localhost:29092.")
+    ] = None,
+    workdir: Annotated[Path, typer.Option(help="Local warehouse and checkpoints.")] = Path(
+        ".contractline"
+    ),
+) -> None:
+    """Run every pipeline once: ingest new data, update silver, rebuild gold."""
+    from contractline.adapters.compute.spark_delta_local import LocalSparkDelta
+    from contractline.runner import build_source_factory, run_project
+
+    if env != "local" and not env.startswith("pr"):
+        typer.echo("This command runs locally; shared environments are deployed by CD.", err=True)
+        raise typer.Exit(code=2)
+    project = _load_project_or_exit(paths)
+    summary = run_project(
+        LocalSparkDelta(workdir),
+        project,
+        env,
+        build_source_factory(kafka_bootstrap_servers),
+        EnvSecretProvider(),
+        progress=lambda m: typer.echo(f"... {m}"),
+    )
+    for report in summary.silver:
+        typer.echo(
+            f"silver {report.dataset}: {report.records_in} in, {report.records_valid} valid, "
+            f"{report.records_quarantined} quarantined"
+        )
+        for warning, count in report.warnings.items():
+            typer.echo(f"  warning: {warning} ({count})")
+    for gold in summary.gold:
+        typer.echo(f"gold {gold.model}: {gold.rows} rows")
+
+
+@app.command("new-dataset")
+def new_dataset(
+    domain: Annotated[str, typer.Option(help="One of the domains in contractline.yaml.")],
+    entity: Annotated[str, typer.Option(help="snake_case entity name, e.g. customers.")],
+    source: Annotated[str, typer.Option(help="cdc, events or files.")] = "cdc",
+    owner: Annotated[str, typer.Option(help="Accountable team or person.")] = "TODO-owner",
+    root: Annotated[Path, typer.Option(help="Folder holding contracts/.")] = Path(),
+) -> None:
+    """Create contracts/<domain>/<entity>.yaml from a template."""
+    config_path = find_config(root.resolve())
+    if config_path is None:
+        typer.echo("No contractline.yaml found.", err=True)
+        raise typer.Exit(code=2)
+    project_config = load_config(config_path)
+    if domain not in project_config.domains:
+        allowed = ", ".join(sorted(project_config.domains))
+        typer.echo(f"Unknown domain {domain!r}: use one of {allowed}.", err=True)
+        raise typer.Exit(code=2)
+    target = root / "contracts" / domain / f"{entity}.yaml"
+    if target.exists():
+        typer.echo(f"{target} already exists.", err=True)
+        raise typer.Exit(code=1)
+    try:
+        text = build_contract_skeleton(domain, entity, source, owner)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+    _, errors = parse_text(text)
+    if errors:  # the template itself is broken: a harness bug, not the user's
+        typer.echo("\n".join(map(str, errors)), err=True)
+        raise typer.Exit(code=1)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, "utf-8")
+    typer.echo(f"Created {target}. Fill in the TODOs, then run contractline validate.")

@@ -18,15 +18,17 @@ measures whether this holds, and reports where it does not.
 | Contract JSON Schema + validator (`contractline validate`) | ✅ works |
 | Contract diff: version bumps and relaxed guarantees (`contractline diff`) | ✅ works |
 | Naming conventions (`contractline lint`, pre-commit, CI) | ✅ works |
-| Local Docker stack: Postgres → Debezium → Kafka, Airflow (`make up`, `make smoke`) | ✅ works (no pipeline runs on it yet) |
-| Bronze envelope, Kafka and Debezium CDC source | ✅ works (tested without a broker; end-to-end run pending) |
+| Local Docker stack: Postgres → Debezium → Kafka, Airflow (`make up`, `make smoke`) | ✅ works |
+| Bronze envelope, Kafka and Debezium CDC source | ✅ works |
 | Silver: standardize, quality with quarantine, masking, SCD1/SCD2/append/snapshot | ✅ works |
-| Gold models: Spark SQL + output contract + mandatory tests, input isolation | ✅ works (library; no CLI command yet) |
-| Generated tests, `plan`/`test`/`run` commands | ❌ not started |
+| Gold models: Spark SQL + output contract + mandatory tests, input isolation | ✅ works |
+| Synthetic data + generated tests (`contractline test`) | ✅ works |
+| `contractline plan`, `run` (local), `new-dataset` | ✅ works |
+| End to end on the Docker stack (`make e2e`) | ✅ works: Postgres → Debezium → Kafka → bronze → silver → gold |
 | Files source, other ingest modes, GDPR operations, Airflow Dags | ❌ not started |
 | Evaluation | ❌ not started |
 
-Today you can write and validate contracts, and the bronze and silver blocks work as a library (see the tests). There is no command that runs a pipeline yet.
+Today a contract and a gold model are enough to run a governed pipeline locally, from Kafka or Postgres CDC to gold, and to test it on synthetic data.
 
 ## Run it locally
 
@@ -36,9 +38,26 @@ Requirements: Python 3.11+, [uv](https://docs.astral.sh/uv/), Java 17+ (for Spar
 git clone https://github.com/firasbouzazi/contractline.git
 cd contractline
 uv sync
-uv run contractline validate examples
-uv run contractline lint examples
+uv run contractline validate examples   # contracts and gold models
+uv run contractline lint examples       # naming conventions
+uv run contractline plan examples       # what a run would do, in order
+uv run contractline test examples       # synthetic data through the real pipeline (~3 min)
 uv run pytest
+```
+
+To run the example pipelines against real sources (needs Docker):
+
+```bash
+make e2e   # starts the stack, changes Postgres rows, sends Kafka events,
+           # runs contractline end to end and checks silver and gold
+```
+
+Or by hand: `make up`, then
+
+```bash
+export CONTRACTLINE_SECRET_PII_HASH=$(openssl rand -hex 32)
+export CONTRACTLINE_SECRET_PII_TOKEN=$(openssl rand -hex 32)
+uv run contractline run examples --env local --kafka-bootstrap-servers localhost:29092
 ```
 
 ### Local stack (optional)

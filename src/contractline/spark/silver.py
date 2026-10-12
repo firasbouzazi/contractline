@@ -332,7 +332,11 @@ def _plan_history(
 
 
 def run_silver(
-    compute: SparkCompute, contract: Contract, env: str, secrets: SecretProvider
+    compute: SparkCompute,
+    contract: Contract,
+    env: str,
+    secrets: SecretProvider,
+    now: datetime | None = None,
 ) -> list[SilverReport]:
     """Process every bronze batch not yet in silver, then stop (``availableNow``)."""
     domain, entity = contract.identity.domain, contract.identity.name
@@ -343,7 +347,7 @@ def run_silver(
 
     def handle(batch: DataFrame, epoch: int) -> None:
         try:
-            reports.append(process_batch(compute, contract, env, batch, str(epoch), secrets))
+            reports.append(process_batch(compute, contract, env, batch, str(epoch), secrets, now))
         except BaseException as exc:
             failures.append(exc)
             raise
