@@ -18,7 +18,7 @@ measures whether this holds, and reports where it does not.
 | Contract JSON Schema + validator (`contractline validate`) | ✅ works |
 | Contract diff (breaking-change detection) | ❌ not started |
 | Naming conventions + `contractline lint` | ❌ not started |
-| Local Docker stack | ❌ not started |
+| Local Docker stack: Postgres → Debezium → Kafka, Airflow (`make up`, `make smoke`) | ✅ works (no pipeline runs on it yet) |
 | Ingest, silver blocks, gold, GDPR operations | ❌ not started |
 | Evaluation | ❌ not started |
 

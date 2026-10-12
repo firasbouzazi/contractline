@@ -1,0 +1,31 @@
+name: Local stack
+
+# Runs only when the stack changes; it is slower than the main CI.
+on:
+  pull_request:
+    paths: ["infra/**", "Makefile", ".github/workflows/local-stack.yml"]
+  push:
+    branches: [main]
+    paths: ["infra/**", "Makefile", ".github/workflows/local-stack.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start all services
+        run: |
+          docker compose -f infra/docker-compose.yml --profile cdc --profile orchestration up -d --wait
+          docker compose -f infra/docker-compose.yml --profile cdc run --rm connect-init
+      - name: Smoke test
+        run: make smoke-all
+      - name: Logs on failure
+        if: failure()
+        run: docker compose -f infra/docker-compose.yml --profile cdc --profile orchestration logs
+      - name: Stop
+        if: always()
+        run: make clean
