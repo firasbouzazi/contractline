@@ -39,7 +39,7 @@ repos:
         name: contractline lint (contracts)
         entry: uv run contractline lint
         language: system
-        files: ^(examples/)?contracts/.*\.ya?ml$
+        files: ^(examples/)?(contracts|pipelines)/.*\.ya?ml$
       - id: contractline-lint-commit
         name: contractline lint (commit message)
         entry: uv run contractline lint --commit-message-file

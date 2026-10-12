@@ -21,7 +21,8 @@ measures whether this holds, and reports where it does not.
 | Local Docker stack: Postgres → Debezium → Kafka, Airflow (`make up`, `make smoke`) | ✅ works (no pipeline runs on it yet) |
 | Bronze envelope, Kafka and Debezium CDC source | ✅ works (tested without a broker; end-to-end run pending) |
 | Silver: standardize, quality with quarantine, masking, SCD1/SCD2/append/snapshot | ✅ works |
-| Gold, generated tests, `plan`/`test`/`run` commands | ❌ not started |
+| Gold models: Spark SQL + output contract + mandatory tests, input isolation | ✅ works (library; no CLI command yet) |
+| Generated tests, `plan`/`test`/`run` commands | ❌ not started |
 | Files source, other ingest modes, GDPR operations, Airflow Dags | ❌ not started |
 | Evaluation | ❌ not started |
 
@@ -35,8 +36,8 @@ Requirements: Python 3.11+, [uv](https://docs.astral.sh/uv/), Java 17+ (for Spar
 git clone https://github.com/firasbouzazi/contractline.git
 cd contractline
 uv sync
-uv run contractline validate examples/contracts
-uv run contractline lint examples/contracts
+uv run contractline validate examples
+uv run contractline lint examples
 uv run pytest
 ```
 

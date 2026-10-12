@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from contractline.core.contract import Contract, SourceAdapter
+from contractline.core.gold import GoldModel
 from contractline.core.naming import RESERVED_TAGS
 from contractline.core.project_config import ProjectConfig
 
@@ -151,6 +152,40 @@ def lint_contract(path: Path, contract: Contract, config: ProjectConfig) -> list
                 "naming/reserved-tag",
                 f"'{key}' is set by the harness from the contract and cannot be overridden",
             )
+    return issues
+
+
+def lint_gold_model(path: Path, model: GoldModel, config: ProjectConfig) -> list[LintIssue]:
+    """Gold files live at ``pipelines/<domain>/gold/<kind>_<name>.yaml``."""
+    subject = str(path)
+    issues: list[LintIssue] = []
+    parts = path.parts
+    expected = None
+    if "pipelines" in parts:
+        index = len(parts) - 1 - parts[::-1].index("pipelines")
+        rest = parts[index + 1 :]
+        if len(rest) == 3 and rest[1] == "gold":
+            expected = (rest[0], Path(rest[2]).stem)
+    if expected != (model.domain, model.name):
+        issues.append(
+            LintIssue(
+                subject,
+                "",
+                "naming/gold-path",
+                f"gold models live at pipelines/{model.domain}/gold/{model.name}.yaml",
+            )
+        )
+    if model.domain not in config.domains:
+        issues.append(
+            LintIssue(
+                subject,
+                "identity.domain",
+                "naming/domain",
+                f"'{model.domain}' is not a known domain",
+            )
+        )
+    for i, column in enumerate(model.columns):
+        issues.extend(_check_word_list(subject, f"schema.columns[{i}].name", column.name, config))
     return issues
 
 
