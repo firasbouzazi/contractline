@@ -26,7 +26,7 @@ def test_validate_accepts_valid_contracts(examples_dir: Path) -> None:
     result = runner.invoke(app, ["validate", str(examples_dir)])
 
     assert result.exit_code == 0
-    assert result.stdout.strip() == "2 contract(s) valid."
+    assert result.stdout.strip() == "4 contract(s) valid."
 
 
 def test_validate_reports_errors_and_fails(tmp_path: Path, examples_dir: Path) -> None:

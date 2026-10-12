@@ -13,7 +13,10 @@ ROOT = Path(__file__).parent.parent.parent / "examples"
 def test_project_orders_contracts_and_models() -> None:
     project = load_project([ROOT])
 
-    assert [c.identity.name for c in project.contracts] == ["customers", "orders"]
+    names = [c.identity.name for c in project.contracts]
+    assert names == ["exchange_rates", "customers", "orders", "shipments"]
+    # shipments checks its order_id against sales.orders, so orders comes first.
+    assert names.index("orders") < names.index("shipments")
     assert [m.name for m in project.gold_models] == ["fct_orders", "agg_daily_revenue"]
     assert project.find_contract("sales", "orders").identity.name == "orders"
     with pytest.raises(ProjectError, match=r"no contract for sales\.refunds"):
@@ -21,7 +24,7 @@ def test_project_orders_contracts_and_models() -> None:
 
 
 def test_plan_steps_and_dependencies() -> None:
-    steps = build_plan(load_project([ROOT]), "pr7")
+    steps = build_plan(load_project([ROOT / "contracts" / "sales", ROOT / "pipelines"]), "pr7")
 
     assert [(s.id, s.kind) for s in steps] == [
         ("sales__customers__bronze", StepKind.INGEST),

@@ -21,6 +21,8 @@ from contractline.testing.generated import EphemeralSecrets, find_raw_pii
 ROOT = Path(__file__).parent.parent
 BOOTSTRAP = os.environ.get("CONTRACTLINE_E2E_KAFKA", "localhost:29092")
 ENV = "local"
+# The sales datasets come from the Docker stack; the files examples need landing folders.
+SALES = [ROOT / "examples" / "contracts" / "sales", ROOT / "examples" / "pipelines"]
 
 
 @pytest.fixture(scope="module")
@@ -30,7 +32,7 @@ def compute(tmp_path_factory: pytest.TempPathFactory) -> LocalSparkDelta:
 
 @pytest.fixture(scope="module")
 def summary(compute: LocalSparkDelta) -> RunSummary:
-    project = load_project([ROOT / "examples"])
+    project = load_project(SALES)
     return run_project(
         compute, project, ENV, build_source_factory(BOOTSTRAP), EphemeralSecrets(), print
     )
@@ -76,7 +78,7 @@ def test_gold_is_built(compute: LocalSparkDelta, summary: RunSummary) -> None:
 
 
 def test_second_run_is_a_no_op(compute: LocalSparkDelta, summary: RunSummary) -> None:
-    project = load_project([ROOT / "examples"])
+    project = load_project(SALES)
     before = table(compute, Layer.SILVER, "customers").count()
 
     again = run_project(

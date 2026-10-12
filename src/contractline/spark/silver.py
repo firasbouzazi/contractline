@@ -15,7 +15,7 @@ from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 from pyspark.sql import types as T
 
-from contractline.core.contract import Contract, HistoryType
+from contractline.core.contract import Contract, HistoryType, IngestMode
 from contractline.core.naming import Layer, build_dataset_name, build_harness_table_name
 from contractline.core.secrets import SecretProvider
 from contractline.spark import history
@@ -209,6 +209,50 @@ def process_batch(
     return report
 
 
+def add_snapshot_deletes(
+    events: DataFrame, existing: DataFrame | None, contract: Contract
+) -> DataFrame:
+    """A full snapshot lists every live key; keys it no longer lists were deleted.
+
+    Only the newest snapshot in the batch counts (each file is normally its own
+    batch, see the files adapter). Missing keys get a delete event at the
+    snapshot's source time.
+    """
+    keys = history.get_business_key(contract)
+    newest = events.agg(F.max("_ingested_at").alias("m"), F.max("_source_offset").alias("o"))
+    snapshot = events.join(newest, F.col("_ingested_at") == F.col("m"), "left_semi")
+    if existing is None:
+        return snapshot
+    current = (
+        existing.where(F.col(history.IS_CURRENT))
+        if history.IS_CURRENT in existing.columns
+        else existing
+    )
+    at = snapshot.agg(
+        F.max(history.EVENT_AT).alias("at"),
+        F.max("_sequence").alias("seq"),
+        F.max("_ingested_at").alias("ingested"),
+    )
+    gone = current.select(*keys).join(snapshot.select(*keys), keys, "left_anti").crossJoin(at)
+    values = [
+        c for c in snapshot.columns if c not in ("_op", history.EVENT_AT, *history.LINEAGE_COLUMNS)
+    ]
+    deletes = gone.select(
+        *[
+            F.col(c) if c in keys else F.lit(None).cast(snapshot.schema[c].dataType).alias(c)
+            for c in values
+        ],
+        F.lit(OP_DELETE).alias("_op"),
+        F.col("at").alias(history.EVENT_AT),
+        F.col("seq").alias("_sequence"),
+        F.concat(F.lit("absent-from-snapshot:"), F.col("ingested").cast("string")).alias(
+            "_source_offset"
+        ),
+        F.col("ingested").alias("_ingested_at"),
+    )
+    return snapshot.unionByName(deletes)
+
+
 def load_logged_events(
     compute: SparkCompute,
     contract: Contract,
@@ -290,6 +334,8 @@ def _plan_history(
         return write_snapshot, rows
 
     keys = history.get_business_key(contract)
+    if contract.source.mode is IngestMode.FULL:
+        events = add_snapshot_deletes(events, existing, contract)
     affected = events.select(*keys).distinct()
     if kind is HistoryType.SCD2:
         previous = (
