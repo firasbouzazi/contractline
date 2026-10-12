@@ -23,8 +23,15 @@ dependencies = [
 [project.scripts]
 contractline = "contractline.cli:app"
 
+[project.optional-dependencies]
+spark = [
+    "delta-spark>=4.0,<4.1",
+    "pyspark>=4.0,<4.1",
+]
+
 [dependency-groups]
 dev = [
+    "contractline[spark]",
     "pytest>=8",
     "pytest-cov>=5",
     "hypothesis>=6",
@@ -33,6 +40,7 @@ dev = [
     "pre-commit>=3.8",
     "types-pyyaml>=6.0.12.20260906",
     "types-jsonschema>=4.26.0.20261006",
+    "import-linter>=2.1",
 ]
 
 [build-system]
@@ -49,6 +57,8 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF", "PT", "S"]
+# PySpark convention: `functions as F`, `types as T`.
+ignore = ["N812"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]
@@ -61,3 +71,26 @@ files = ["src", "tests"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers --strict-config"
+
+[tool.importlinter]
+root_package = "contractline"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "The core never depends on engines, adapters or tool libraries (ADR-0006)"
+type = "forbidden"
+source_modules = ["contractline.core"]
+forbidden_modules = [
+    "contractline.adapters",
+    "contractline.spark",
+    "pyspark",
+    "delta",
+    "airflow",
+    "databricks",
+]
+
+[[tool.importlinter.contracts]]
+name = "Blocks never depend on platform adapters (ADR-0010)"
+type = "forbidden"
+source_modules = ["contractline.spark"]
+forbidden_modules = ["contractline.adapters"]

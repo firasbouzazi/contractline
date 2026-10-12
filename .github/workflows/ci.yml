@@ -20,6 +20,15 @@ jobs:
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+      # Spark 4 needs Java 17+; Delta and Kafka jars are fetched from Maven on first use.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.ivy2.5.2
+          key: ivy-${{ hashFiles('uv.lock') }}
       - name: Install
         run: uv sync --python ${{ matrix.python-version }} --locked
       - name: Lint
@@ -28,6 +37,8 @@ jobs:
         run: uv run ruff format --check .
       - name: Type-check
         run: uv run mypy
+      - name: Architecture boundaries
+        run: uv run lint-imports
       - name: Validate example contracts
         run: uv run contractline validate examples/contracts
       - name: Lint naming conventions
