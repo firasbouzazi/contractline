@@ -248,3 +248,11 @@ def test_new_dataset_creates_a_valid_contract(tmp_path: Path) -> None:
     assert runner.invoke(app, ["validate", str(tmp_path / "contracts")]).exit_code == 0
     assert again.exit_code == 1
     assert unknown.exit_code == 2
+
+
+def test_pii_inventory_command(examples_dir: Path) -> None:
+    result = runner.invoke(app, ["pii-inventory", str(examples_dir)])
+
+    assert result.exit_code == 0, result.output
+    datasets = json.loads(result.stdout)["datasets"]
+    assert {d["dataset"] for d in datasets} == {"sales.customers", "logistics.shipments"}

@@ -26,7 +26,8 @@ measures whether this holds, and reports where it does not.
 | `contractline plan`, `run` (local), `new-dataset` | ✅ works |
 | End to end on the Docker stack (`make e2e`) | ✅ works: Postgres → Debezium → Kafka → bronze → silver → gold |
 | Files source (CSV, JSON lines, Parquet); `full`, `incremental`, `append_stream` modes | ✅ works |
-| GDPR operations, Airflow Dags | ❌ not started |
+| GDPR: PII inventory, retention purge, right to erasure (all layers, audit, replay guard) | ✅ works |
+| Airflow Dags generated from contracts | ❌ not started |
 | Evaluation | ❌ not started |
 
 Today a contract and a gold model are enough to run a governed pipeline locally, from Kafka or Postgres CDC to gold, and to test it on synthetic data.
