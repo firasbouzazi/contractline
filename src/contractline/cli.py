@@ -17,6 +17,7 @@ from contractline import __version__
 from contractline.core.contract import Contract
 from contractline.core.diff import build_report, diff_contracts
 from contractline.core.gold import GoldModel, parse_gold
+from contractline.core.inventory import build_inventory, format_inventory, inventory_as_dict
 from contractline.core.lint import (
     LintIssue,
     lint_branch,
@@ -352,3 +353,74 @@ def new_dataset(
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(text, "utf-8")
     typer.echo(f"Created {target}. Fill in the TODOs, then run contractline validate.")
+
+
+@app.command("pii-inventory")
+def pii_inventory(
+    paths: PathsArgument,
+    output: Annotated[
+        OutputFormat, typer.Option("--format", help="json (machine-readable) or text (table).")
+    ] = OutputFormat.JSON,
+) -> None:
+    """List every personal-data column: class, masking, legal basis, retention, readers."""
+    entries = build_inventory(_load_project_or_exit(paths))
+    if output is OutputFormat.JSON:
+        typer.echo(json.dumps(inventory_as_dict(entries), indent=2))
+    else:
+        typer.echo(format_inventory(entries))
+
+
+@app.command()
+def erase(
+    paths: PathsArgument,
+    dataset: Annotated[str, typer.Option(help="<domain>.<entity> holding the subject.")],
+    key: Annotated[str, typer.Option(help="The subject's erasure key value, as text.")],
+    request_id: Annotated[str, typer.Option(help="Ticket or request reference, for the audit.")],
+    env: EnvOption = "local",
+    vacuum_hours: Annotated[
+        int | None, typer.Option(help="Also VACUUM, keeping this many hours of history.")
+    ] = None,
+    workdir: Annotated[Path, typer.Option(help="Local warehouse.")] = Path(".contractline"),
+) -> None:
+    """Right to erasure: delete one subject from bronze, quarantine, silver and gold."""
+    from contractline.adapters.compute.spark_delta_local import LocalSparkDelta
+    from contractline.spark.gdpr import ErasureError, erase_subject
+
+    project = _load_project_or_exit(paths)
+    try:
+        record = erase_subject(
+            LocalSparkDelta(workdir),
+            project,
+            env,
+            dataset,
+            key,
+            request_id,
+            EnvSecretProvider(),
+            vacuum_hours,
+        )
+    except (ErasureError, ProjectError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    deleted = ", ".join(f"{layer}: {n}" for layer, n in record.rows_deleted.items())
+    typer.echo(f"Erased from {record.dataset} ({deleted}); gold rebuilt: {record.gold_rebuilt}")
+    if not record.vacuumed:
+        typer.echo("Old file versions keep the data until VACUUM runs (see --vacuum-hours).")
+
+
+@app.command()
+def purge(
+    paths: PathsArgument,
+    env: EnvOption = "local",
+    vacuum_hours: Annotated[
+        int | None, typer.Option(help="Also VACUUM, keeping this many hours of history.")
+    ] = None,
+    workdir: Annotated[Path, typer.Option(help="Local warehouse.")] = Path(".contractline"),
+) -> None:
+    """Retention: delete records older than each contract's retention period."""
+    from contractline.adapters.compute.spark_delta_local import LocalSparkDelta
+    from contractline.spark.gdpr import purge_expired
+
+    project = _load_project_or_exit(paths)
+    for record in purge_expired(LocalSparkDelta(workdir), project, env, vacuum_hours=vacuum_hours):
+        deleted = ", ".join(f"{layer}: {n}" for layer, n in record.rows_deleted.items())
+        typer.echo(f"{record.dataset}: {deleted}")

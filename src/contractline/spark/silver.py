@@ -20,6 +20,7 @@ from contractline.core.naming import Layer, build_dataset_name, build_harness_ta
 from contractline.core.secrets import SecretProvider
 from contractline.spark import history
 from contractline.spark.bronze import ENVELOPE_COLUMNS, OP_DELETE
+from contractline.spark.gdpr import build_erased_filter
 from contractline.spark.interfaces import SparkCompute
 from contractline.spark.privacy import apply_masking
 from contractline.spark.quality import (
@@ -167,7 +168,9 @@ def process_batch(
     now = now or datetime.now(UTC).replace(tzinfo=None)
 
     undeclared = check_drift(bronze_batch, contract)
-    standardized = standardize(bronze_batch, contract)
+    standardized = build_erased_filter(compute, contract, env, secrets)(
+        standardize(bronze_batch, contract)
+    )
     if existing is not None and contract.history.type is HistoryType.APPEND:
         # A replayed batch: records already in silver are not new duplicates.
         published = existing.select("_source_offset")
