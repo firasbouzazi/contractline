@@ -19,14 +19,17 @@ measures whether this holds, and reports where it does not.
 | Contract diff: version bumps and relaxed guarantees (`contractline diff`) | ✅ works |
 | Naming conventions (`contractline lint`, pre-commit, CI) | ✅ works |
 | Local Docker stack: Postgres → Debezium → Kafka, Airflow (`make up`, `make smoke`) | ✅ works (no pipeline runs on it yet) |
-| Ingest, silver blocks, gold, GDPR operations | ❌ not started |
+| Bronze envelope, Kafka and Debezium CDC source | ✅ works (tested without a broker; end-to-end run pending) |
+| Silver: standardize, quality with quarantine, masking, SCD1/SCD2/append/snapshot | ✅ works |
+| Gold, generated tests, `plan`/`test`/`run` commands | ❌ not started |
+| Files source, other ingest modes, GDPR operations, Airflow Dags | ❌ not started |
 | Evaluation | ❌ not started |
 
-Today you can write a contract and validate it. Nothing runs pipelines yet.
+Today you can write and validate contracts, and the bronze and silver blocks work as a library (see the tests). There is no command that runs a pipeline yet.
 
 ## Run it locally
 
-Requirements: Python 3.11+, [uv](https://docs.astral.sh/uv/).
+Requirements: Python 3.11+, [uv](https://docs.astral.sh/uv/), Java 17+ (for Spark).
 
 ```bash
 git clone https://github.com/firasbouzazi/contractline.git

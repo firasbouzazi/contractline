@@ -23,6 +23,7 @@ from contractline.core.contract import (
     Contract,
     HistoryType,
     IngestMode,
+    Masking,
     MaskingStrategy,
     PiiClass,
     RuleType,
@@ -88,6 +89,39 @@ def check_schema(doc: Any) -> list[ContractError]:
 
 def _is_orderable(column_type: str) -> bool:
     return column_type in _ORDERABLE_TYPES or bool(_DECIMAL.match(column_type))
+
+
+_GENERALIZE_UNITS = ("year", "month")
+
+
+def check_masking_params(column_type: str, masking: Masking) -> list[str]:
+    """Parameter problems for one masking entry (strategy-specific)."""
+    params = dict(masking.params or {})
+    problems: list[str] = []
+    key = params.pop("key", None)
+    if key is not None and (
+        masking.strategy not in (MaskingStrategy.HASH, MaskingStrategy.TOKENIZE)
+        or not isinstance(key, str)
+    ):
+        problems.append("'key' names a secret and only applies to hash and tokenize")
+    if masking.strategy is not MaskingStrategy.GENERALIZE:
+        if params:
+            problems.append(f"{masking.strategy} takes no parameters: {', '.join(params)}")
+        return problems
+    if column_type in ("date", "timestamp"):
+        if params.get("to", "year") not in _GENERALIZE_UNITS or set(params) - {"to"}:
+            problems.append("generalize on a date or timestamp takes 'to: year|month'")
+    elif column_type in ("integer", "long", "double") or column_type.startswith("decimal"):
+        bucket = params.get("bucket")
+        if set(params) != {"bucket"} or not isinstance(bucket, int | float) or bucket <= 0:
+            problems.append("generalize on a number needs 'bucket: <positive width>'")
+    elif column_type == "string":
+        keep = params.get("keep_chars")
+        if set(params) != {"keep_chars"} or not isinstance(keep, int) or keep < 1:
+            problems.append("generalize on a string needs 'keep_chars: <positive integer>'")
+    else:
+        problems.append(f"generalize does not apply to {column_type} columns")
+    return problems
 
 
 def check_semantics(contract: Contract) -> list[ContractError]:
@@ -200,6 +234,11 @@ def check_semantics(contract: Contract) -> list[ContractError]:
                     f"{column.pii} PII cannot be kept unmasked after bronze; "
                     "use hash, tokenize, redact or drop",
                 )
+        for name, masking in privacy.masking.items():
+            column_type = types.get(name)
+            if column_type is not None:
+                for problem in check_masking_params(column_type, masking):
+                    error(f"privacy.masking.{name}.params", problem)
         erasure_masking = privacy.masking.get(privacy.erasure_key)
         if erasure_masking is not None and erasure_masking.strategy in _IRREVERSIBLE_FOR_ERASURE:
             error(
@@ -217,6 +256,13 @@ def check_semantics(contract: Contract) -> list[ContractError]:
                 f"{location}.severity",
                 f"{rule.type} checks the whole dataset, so it cannot quarantine "
                 "individual records; use warn or block",
+            )
+        keyed = contract.history.type is not HistoryType.APPEND
+        if rule.type is RuleType.UNIQUE and keyed and rule.severity is Severity.QUARANTINE:
+            error(
+                f"{location}.severity",
+                f"unique on {contract.history.type} history is checked on the current rows "
+                "as a whole, so it cannot quarantine individual records; use warn or block",
             )
         if rule.type is RuleType.RANGE:
             low, high = rule.params.get("min"), rule.params.get("max")

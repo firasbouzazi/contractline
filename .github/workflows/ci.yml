@@ -49,5 +49,11 @@ jobs:
           args=(examples/contracts --branch "$BRANCH")
           if [ -n "$PR_TITLE" ]; then args+=(--pr-title "$PR_TITLE"); fi
           uv run contractline lint "${args[@]}"
+      # Spark tests are slow; they run once, on the oldest supported Python.
       - name: Test
-        run: uv run pytest --cov=contractline --cov-report=term-missing
+        run: |
+          if [ "${{ matrix.python-version }}" = "3.11" ]; then
+            uv run pytest --cov=contractline --cov-report=term-missing
+          else
+            uv run pytest -m "not spark"
+          fi

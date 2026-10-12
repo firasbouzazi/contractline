@@ -53,6 +53,12 @@ def build_dataset_name(env: str, layer: Layer, domain: str, entity: str) -> str:
     return f"{env}_{layer}.{domain}.{entity}"
 
 
+def build_harness_table_name(env: str, name: str) -> str:
+    """Tables the harness keeps for itself, e.g. ``prod_harness.contractline.runs``."""
+    _check_environment(env)
+    return f"{env}_harness.contractline.{name}"
+
+
 def build_gold_model_name(env: str, domain: str, kind: GoldKind, name: str) -> str:
     """``<env>_gold.<domain>.<kind>_<name>``, e.g. ``prod_gold.sales.fct_orders``."""
     return build_dataset_name(env, Layer.GOLD, domain, f"{kind}_{name}")
