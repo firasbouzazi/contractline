@@ -1,0 +1,38 @@
+# Databricks Asset Bundle for the project's pipelines (ADR-0019).
+# Jobs are generated: `contractline bundle contracts pipelines` writes
+# resources/jobs.yml. Deployed only by CD (`databricks bundle deploy -t <env>`).
+bundle:
+  name: contractline
+
+include:
+  - resources/*.yml
+
+artifacts:
+  contractline:
+    type: whl
+    path: ../..
+    build: uv build --wheel
+
+sync:
+  paths:
+    - ../../contracts
+    - ../../pipelines
+    - ../../contractline.yaml
+
+variables:
+  schedule_pause_status:
+    description: PAUSED outside production so dev and staging only run when asked.
+    default: PAUSED
+  kafka_bootstrap_servers:
+    description: Kafka brokers reachable from Databricks.
+
+targets:
+  dev:
+    mode: development
+    default: true
+  staging:
+    mode: production
+  prod:
+    mode: production
+    variables:
+      schedule_pause_status: UNPAUSED

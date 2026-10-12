@@ -16,11 +16,14 @@ import typer
 import yaml
 
 from contractline import __version__
+from contractline.adapters.governance.unity_catalog import build_statements as build_uc_statements
 from contractline.adapters.orchestration.airflow import build_dags, find_stale_dags, write_dags
+from contractline.adapters.orchestration.databricks_bundle import build_bundle_resources
 from contractline.core.ci_summary import build_ci_summary
 from contractline.core.contract import Contract
 from contractline.core.diff import build_report, diff_contracts
 from contractline.core.gold import GoldModel, parse_gold
+from contractline.core.governance import build_governance_plan
 from contractline.core.inventory import build_inventory, format_inventory, inventory_as_dict
 from contractline.core.lint import (
     LintIssue,
@@ -32,7 +35,7 @@ from contractline.core.lint import (
 )
 from contractline.core.naming import is_valid_environment
 from contractline.core.plan import build_plan, format_plan
-from contractline.core.project import Project, ProjectError, load_project
+from contractline.core.project import Project, ProjectError, find_project_files, load_project
 from contractline.core.project_config import ConfigError, find_config, load_config
 from contractline.core.scaffold import build_contract_skeleton
 from contractline.core.scope import find_out_of_scope
@@ -54,8 +57,6 @@ from contractline.evaluation.metrics import summarize as summarize_runs
 from contractline.evaluation.report import build_report as build_eval_report
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
-
-CONTRACT_SUFFIXES = (".yaml", ".yml")
 
 
 def _print_version(value: bool) -> None:
@@ -95,13 +96,7 @@ def parse_file(path: Path) -> tuple[Contract | GoldModel | None, list[ContractEr
 
 
 def find_contract_files(paths: list[Path]) -> list[Path]:
-    found: list[Path] = []
-    for path in paths:
-        if path.is_dir():
-            found.extend(sorted(p for p in path.rglob("*") if p.suffix in CONTRACT_SUFFIXES))
-        else:
-            found.append(path)
-    return found
+    return find_project_files(paths)
 
 
 @app.command()
@@ -447,31 +442,33 @@ def run_step_command(
         typer.Option("--project", envvar="CONTRACTLINE_PROJECT", help="Contract and gold folders."),
     ],
     env: EnvOption = "local",
+    platform: Annotated[
+        str, typer.Option(envvar="CONTRACTLINE_PLATFORM", help="local or databricks.")
+    ] = "local",
     kafka_bootstrap_servers: Annotated[
         str | None, typer.Option(envvar="CONTRACTLINE_KAFKA_BOOTSTRAP_SERVERS")
     ] = None,
     workdir: Annotated[
         Path, typer.Option(envvar="CONTRACTLINE_WORKDIR", help="Local warehouse.")
     ] = Path(".contractline"),
+    secret_scope: Annotated[
+        str, typer.Option(envvar="CONTRACTLINE_SECRET_SCOPE", help="Databricks secret scope.")
+    ] = "contractline",  # noqa: S107 - the scope's name, not a secret
 ) -> None:
-    """Run a single plan step: what each generated Airflow task calls."""
-    from contractline.adapters.compute.spark_delta_local import LocalSparkDelta
+    """Run a single plan step: what each generated Airflow task or Databricks job calls."""
     from contractline.runner import (
+        Platform,
         UnknownStepError,
-        build_source_factory,
+        build_platform,
         run_step,
     )
 
     loaded = _load_project_or_exit(project)
+    compute, sources, secrets = build_platform(
+        Platform(platform), env, workdir, kafka_bootstrap_servers, secret_scope
+    )
     try:
-        summary = run_step(
-            LocalSparkDelta(workdir),
-            loaded,
-            env,
-            step,
-            build_source_factory(kafka_bootstrap_servers),
-            EnvSecretProvider(),
-        )
+        summary = run_step(compute, loaded, env, step, sources, secrets)
     except UnknownStepError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=2) from exc
@@ -645,3 +642,48 @@ def eval_report(
     if out:
         out.write_text(text, "utf-8")
     typer.echo(text)
+
+
+@app.command()
+def bundle(
+    paths: PathsArgument,
+    out: Annotated[Path, typer.Option(help="Bundle resources file.")] = Path(
+        "infra/databricks/resources/jobs.yml"
+    ),
+    check: Annotated[bool, typer.Option("--check", help="Fail if out of date.")] = False,
+) -> None:
+    """Generate the Databricks Asset Bundle jobs: one per plan step."""
+    # The environment comes from the bundle target at deploy time.
+    text = build_bundle_resources(build_plan(_load_project_or_exit(paths), "dev"))
+    if check:
+        if not out.exists() or out.read_text("utf-8") != text:
+            typer.echo(f"{out} is out of date; run `contractline bundle`.", err=True)
+            raise typer.Exit(code=1)
+        typer.echo(f"{out} is up to date.")
+        return
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(text, "utf-8")
+    typer.echo(f"wrote {out}")
+
+
+@app.command()
+def governance(
+    paths: PathsArgument,
+    env: EnvOption = "dev",
+    apply_local: Annotated[
+        bool, typer.Option("--apply-local", help="Tag local tables instead of printing SQL.")
+    ] = False,
+    workdir: Annotated[Path, typer.Option(help="Local warehouse.")] = Path(".contractline"),
+) -> None:
+    """Tags and grants for every table: Unity Catalog SQL, or local table properties."""
+    policies = build_governance_plan(_load_project_or_exit(paths), env)
+    if apply_local:
+        from contractline.adapters.compute.spark_delta_local import (
+            LocalSparkDelta,
+        )
+        from contractline.adapters.governance.local import apply_table_tags
+
+        for table in apply_table_tags(LocalSparkDelta(workdir), policies):
+            typer.echo(f"tagged {table}")
+        return
+    typer.echo("\n".join(build_uc_statements(policies)))

@@ -34,11 +34,23 @@ class Project:
         raise ProjectError(f"no gold model {domain}.{name}")
 
 
-def _yaml_files(paths: Iterable[Path]) -> list[Path]:
+# Folders of generated platform files (Dags, bundles): never contracts.
+GENERATED_FOLDERS = frozenset({"airflow", "databricks"})
+
+
+def find_project_files(paths: Iterable[Path]) -> list[Path]:
+    """YAML files under ``paths`` (explicit files are always included)."""
     found: list[Path] = []
     for path in paths:
         if path.is_dir():
-            found.extend(sorted(p for p in path.rglob("*") if p.suffix in (".yaml", ".yml")))
+            found.extend(
+                sorted(
+                    p
+                    for p in path.rglob("*")
+                    if p.suffix in (".yaml", ".yml")
+                    and not GENERATED_FOLDERS & set(p.relative_to(path).parts[:-1])
+                )
+            )
         else:
             found.append(path)
     return found
@@ -48,7 +60,7 @@ def load_project(paths: Iterable[Path]) -> Project:
     """Load every contract and gold model under ``paths`` (raises on invalid files)."""
     contracts: list[Contract] = []
     models: list[GoldModel] = []
-    for file in _yaml_files(paths):
+    for file in find_project_files(paths):
         doc = load_yaml(file.read_text("utf-8"))
         if isinstance(doc, dict) and doc.get("api_version") == GOLD_API_VERSION:
             models.append(load_gold_model(file))
