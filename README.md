@@ -37,6 +37,20 @@ uv run contractline lint examples/contracts
 uv run pytest
 ```
 
+### Local stack (optional)
+
+Needs Docker with Compose. About 1 GB of RAM for the CDC services, plus about
+1 GB for Airflow.
+
+```bash
+make up        # Postgres (demo CRM) -> Debezium -> Kafka, connector registered
+make smoke     # inserts a row in Postgres, checks it arrives on cdc.crm.public.customers
+make up-all    # also starts Airflow on http://localhost:8080
+make clean     # stops everything and deletes the data
+```
+
+The test suite does not need Docker. See [ADR-0009](docs/adr/0009-local-stack.md).
+
 ## A contract in brief
 
 See [`examples/contracts/sales/customers.yaml`](examples/contracts/sales/customers.yaml).
