@@ -1,0 +1,110 @@
+# Local stack. Credentials here are for local development only.
+#
+# Profiles keep the laptop footprint small:
+#   cdc            Postgres (demo CRM) -> Debezium -> Kafka        (~1 GB RAM measured)
+#   orchestration  Airflow (standalone)                            (~1 GB RAM measured)
+# Spark is not a service: the harness runs PySpark with Delta Lake in-process.
+name: contractline
+
+services:
+  postgres:
+    profiles: [cdc]
+    image: postgres:16.4
+    command: ["postgres", "-c", "wal_level=logical"]
+    environment:
+      POSTGRES_USER: crm
+      POSTGRES_PASSWORD: crm
+      POSTGRES_DB: crm
+    ports: ["5432:5432"]
+    volumes:
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crm -d crm"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  kafka:
+    profiles: [cdc]
+    image: apache/kafka:3.9.0
+    environment:
+      CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:9092,EXTERNAL://:29092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    ports: ["29092:29092"]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  connect:
+    profiles: [cdc]
+    image: quay.io/debezium/connect:3.0.0.Final
+    depends_on:
+      kafka: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: contractline-connect
+      CONFIG_STORAGE_TOPIC: _connect_configs
+      OFFSET_STORAGE_TOPIC: _connect_offsets
+      STATUS_STORAGE_TOPIC: _connect_statuses
+      # Plain JSON envelopes (no embedded schema); the contract is the schema.
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+    ports: ["8083:8083"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8083/connectors > /dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+
+  # One-shot, run by `make up`: registers (or updates) the Debezium connectors.
+  # PUT is idempotent, so running it again is safe.
+  connect-init:
+    profiles: [setup]
+    image: quay.io/debezium/connect:3.0.0.Final
+    depends_on:
+      connect: { condition: service_healthy }
+    volumes:
+      - ./debezium:/connectors:ro
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        for file in /connectors/*.json; do
+          name=$$(basename "$$file" .json)
+          curl -fsS -X PUT -H 'Content-Type: application/json' \
+            --data @"$$file" "http://connect:8083/connectors/$$name/config" > /dev/null
+          echo "registered connector $$name"
+        done
+    restart: "no"
+
+  airflow:
+    profiles: [orchestration]
+    image: apache/airflow:3.1.0-python3.11
+    command: standalone
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "True"
+    ports: ["8080:8080"]
+    volumes:
+      # Dags here are generated from contracts (milestone 3), never hand-written.
+      - ./airflow/dags:/opt/airflow/dags
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api/v2/monitor/health > /dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
